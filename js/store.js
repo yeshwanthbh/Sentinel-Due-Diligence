@@ -1,9 +1,10 @@
 /* Sentinel DD — storage layer (IndexedDB)
- * Stores: users, projects, docblobs (raw file blobs + full extracted text)
+ * Stores: users, projects, docblobs (raw file blobs + full extracted text),
+ *         outcomes (anonymized post-deal learning bank — see js/learning.js)
  * Everything hangs off window.DD so the non-module scripts can share state. */
 (function () {
   const DB_NAME = "sentinel-dd-db";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
 
   const DD = (window.DD = window.DD || {});
   let db;
@@ -39,6 +40,15 @@
         if (!database.objectStoreNames.contains("docblobs")) {
           database.createObjectStore("docblobs", { keyPath: "id" });
         }
+        // Learning bank: anonymized, structured outcomes of finalized deals.
+        // Never holds documents, evidence, or company names — only the fields
+        // js/learning.js records with the contributor's explicit consent.
+        if (!database.objectStoreNames.contains("outcomes")) {
+          const outcomes = database.createObjectStore("outcomes", { keyPath: "id" });
+          outcomes.createIndex("ownerId", "ownerId", { unique: false });
+          outcomes.createIndex("dealType", "dealType", { unique: false });
+          outcomes.createIndex("industry", "industry", { unique: false });
+        }
       };
       request.onsuccess = () => { db = request.result; resolve(db); };
       request.onerror = () => reject(request.error);
@@ -57,6 +67,7 @@
 
   const store = {
     get: (name, key) => tx(name, "readonly", (s) => s.get(key)),
+    getAll: (name) => tx(name, "readonly", (s) => s.getAll()),
     getByIndex: (name, index, value) => tx(name, "readonly", (s) => s.index(index).get(value)),
     getAllByIndex: (name, index, value) => tx(name, "readonly", (s) => s.index(index).getAll(value)),
     put: (name, record) => tx(name, "readwrite", (s) => s.put(record)),

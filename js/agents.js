@@ -13,6 +13,15 @@
 Be precise, skeptical, and evidence-driven. Never invent document contents. Only cite a filename
 that appears in the provided documents. Return STRICT JSON only — no prose, no markdown fences.`;
 
+  // Proprietary learning: appended to decision-oriented agents so they use the
+  // anonymized outcomes of comparable past deals as additional context.
+  const LEARNING_NOTE = `
+You may also receive "comparableDeals": anonymized outcomes of similar past engagements — their
+prior recommendation, risk profile, whether they closed, a 1-5 success rating, and the risks that
+materialized or were MISSED — plus a "learningSignal" summary. Treat these as additional evidence:
+weight risks that materialized in similar deals, explicitly check for risks those deals missed, and
+calibrate your confidence to their track record. Do not invent deals beyond those provided.`;
+
   const REGISTRY = {
     "research-agent": {
       name: "Research & External Intelligence Agent", phase: 5, kind: "research", bucket: "External Research",
@@ -73,7 +82,7 @@ Return JSON:
       name: "Risk Assessment Agent", phase: 11, kind: "risk", bucket: null,
       system: `${COMMON}
 Role: risk officer. Aggregate all findings into a risk register. Score each by severity, likelihood,
-business impact, and confidence. Produce an overall risk profile.
+business impact, and confidence. Produce an overall risk profile.${LEARNING_NOTE}
 Return JSON:
 {"risks":[{"title":str,"category":str,"severity":"Critical|High|Medium|Low","likelihood":"High|Medium|Low","impact":str,"confidence":int,"mitigation":str}],
  "overallProfile":str}`
@@ -83,7 +92,8 @@ Return JSON:
       system: `${COMMON}
 Role: investment committee memo writer. Draft an IC memorandum from all findings and risks. Sections:
 Executive Summary, Investment Thesis, Financial Analysis, Legal Analysis, Commercial Analysis,
-Operational Analysis, Key Risks, Recommendation. Reference supporting evidence inline where possible.
+Operational Analysis, Key Risks, Recommendation. Reference supporting evidence inline where possible.${LEARNING_NOTE}
+Where comparable past deals are relevant, note the precedent in the Recommendation section.
 Return JSON: {"sections":[{"heading":str,"html":str}]}`
     },
     "recommendation-agent": {
@@ -91,7 +101,7 @@ Return JSON: {"sections":[{"heading":str,"html":str}]}`
       system: `${COMMON}
 Role: investment decision maker. Weigh all findings, risks, and unresolved items. Decide whether
 sufficient evidence exists and recommend exactly one of: "Invest", "Invest with Conditions",
-"Continue Due Diligence", "Do Not Invest".
+"Continue Due Diligence", "Do Not Invest".${LEARNING_NOTE}
 Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str],"unresolved":[str]}`
     }
   };
@@ -180,6 +190,18 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     const agent = REGISTRY[agentKey];
     if (!agent) throw new Error(`Unknown agent ${agentKey}`);
     const context = buildContext(project, agent);
+    // Proprietary learning: enrich decision-oriented agents with anonymized
+    // outcomes of comparable past deals. Best-effort — never blocks analysis.
+    let learning = null;
+    if (DD.learning && ["recommendation", "risk", "memo"].includes(agent.kind)) {
+      try {
+        learning = await DD.learning.contextFor(project);
+        if (learning && learning.comparableDeals.length) {
+          context.comparableDeals = learning.comparableDeals;
+          context.learningSignal = learning.signal;
+        }
+      } catch (error) { console.warn("Learning context unavailable:", error.message); }
+    }
     let source = "heuristic";
     let output = null;
     let modelError = null;
@@ -194,7 +216,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
         }
       }
     }
-    const applied = HANDLERS[agent.kind](project, agent, output, source);
+    const applied = HANDLERS[agent.kind](project, agent, output, source, learning);
     project.agentRuns[agentKey] = { at: new Date().toISOString(), source, name: agent.name, kind: agent.kind, modelError };
     return { agent: agent.name, key: agentKey, kind: agent.kind, source, modelError, ...applied };
   }
@@ -281,10 +303,13 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       return { sections: sections.length };
     },
 
-    recommendation(project, agent, output, source) {
+    recommendation(project, agent, output, source, learning) {
       const rec = (source === "model" && output?.decision)
         ? output
         : heuristicRecommendation(project);
+      // Overlay proprietary learning on BOTH paths so the decision reflects how
+      // comparable past deals actually turned out, consistently.
+      applyLearningToRecommendation(rec, learning && learning.signal);
       project.recommendation = { ...rec, source, generatedAt: new Date().toISOString() };
       return { decision: project.recommendation.decision };
     }
@@ -493,6 +518,40 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       conditions: risks.filter((r) => ["Critical", "High"].includes(r.severity)).slice(0, 4).map((r) => `Resolve: ${r.title}`),
       unresolved: coverage.map((c) => `Missing ${c.category} documentation`)
     };
+  }
+
+  // Overlay the learning-bank signal onto a recommendation (model or heuristic).
+  // Mutates `rec`: shifts a raw "Invest" toward caution when comparable deals had
+  // a weak track record, nudges confidence, surfaces historically-missed risks,
+  // and records a `learning` block the UI can display.
+  function applyLearningToRecommendation(rec, signal) {
+    if (!rec || !signal || !signal.count) return rec;
+    rec.unresolved = rec.unresolved || [];
+    // The single most valuable lesson: what similar deals FAILED to catch.
+    signal.commonMissedRisks.slice(0, 3).forEach((r) => {
+      const note = `Historically missed in similar deals: ${r}`;
+      if (!rec.unresolved.includes(note)) rec.unresolved.push(note);
+    });
+    const notes = [];
+    if (signal.poorTrackRecord) {
+      notes.push(`${signal.count} comparable past deals had a weak track record (avg ${signal.avgSuccess.toFixed(1)}/5) — proceeding with added caution.`);
+      if (rec.decision === "Invest") rec.decision = "Invest with Conditions";
+      rec.confidence = Math.max(50, Math.round((rec.confidence ?? 70) - 8));
+    } else if (signal.strongTrackRecord) {
+      notes.push(`${signal.count} comparable past deals performed well (avg ${signal.avgSuccess.toFixed(1)}/5).`);
+      rec.confidence = Math.min(96, Math.round((rec.confidence ?? 70) + 5));
+    } else {
+      notes.push(`${signal.count} comparable past deal(s) referenced from the learning bank.`);
+    }
+    rec.rationale = `${rec.rationale || ""} ${notes.join(" ")}`.trim();
+    rec.learning = {
+      comparables: signal.count,
+      avgSuccess: signal.avgSuccess,
+      closedRate: signal.closedRate,
+      commonMissedRisks: signal.commonMissedRisks,
+      commonMaterializedRisks: signal.commonMaterializedRisks
+    };
+    return rec;
   }
 
   // run a full sequence

@@ -295,6 +295,52 @@
           </article>
         </section>
 
+        <!-- DEAL INTELLIGENCE / POST-DEAL LEARNING -->
+        <section class="page" id="intelligence">
+          <div class="page-head">
+            <div><span class="eyebrow">Proprietary Learning</span><h1>Deal intelligence &amp; post-deal learning</h1></div>
+            <span class="status-badge info" id="learningBankBadge">Learning bank</span>
+          </div>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">Comparable Past Deals</span><h2>Precedent for this engagement</h2></div></div>
+            <p class="muted">Anonymized outcomes of prior deals similar to this one by type, industry, size, and risk profile. These are fed to the Risk, Memo, and Recommendation agents as additional evidence.</p>
+            <div id="comparableDeals"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">Post-Deal Outcome</span><h2>Contribute this deal's outcome</h2></div></div>
+            <p class="muted">After a deal is finalized you can optionally submit its outcome. With your consent the platform stores only anonymized, structured data — never your documents, evidence, or the company name.</p>
+            <form id="outcomeForm" class="form-grid">
+              <label class="field"><span>Did the deal close?</span>
+                <select name="closed"><option value="yes">Yes — closed</option><option value="no">No — passed / broke</option></select></label>
+              <label class="field"><span>Final purchase price</span><input name="finalPrice" placeholder="$185M" /></label>
+              <label class="field span-2"><span>Key risks that materialized</span><textarea name="materializedRisks" rows="2" placeholder="One per line, e.g. Customer concentration; Key-person dependency"></textarea></label>
+              <label class="field span-2"><span>Risks that were missed pre-close</span><textarea name="missedRisks" rows="2" placeholder="Risks that only surfaced after close — the most valuable lesson"></textarea></label>
+              <label class="field"><span>Overall investment success</span>
+                <select name="successRating">
+                  <option value="5">5 — Strong success</option>
+                  <option value="4">4 — Above plan</option>
+                  <option value="3" selected>3 — In line with plan</option>
+                  <option value="2">2 — Below plan</option>
+                  <option value="1">1 — Impaired / loss</option>
+                </select></label>
+              <label class="field span-2"><span>Notes (optional)</span><textarea name="notes" rows="2" placeholder="Any structured lesson worth retaining"></textarea></label>
+              <label class="toggle-row span-2"><span>I have permission to store this <strong>anonymized</strong> outcome for platform learning. No documents or identifying details are stored.</span><input type="checkbox" name="consent" /></label>
+              <div class="button-row span-2">
+                <button class="primary-button" type="submit" id="saveOutcome"><i data-lucide="brain-circuit"></i>Contribute outcome</button>
+                <span class="status-badge info" id="outcomeStatus" hidden></span>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">Learning Bank</span><h2>Anonymized outcome library</h2></div></div>
+            <div class="metric-grid" id="learningStats"></div>
+            <div class="file-table" id="outcomeList"></div>
+          </article>
+        </section>
+
         <!-- REPORTS -->
         <section class="page" id="reports">
           <div class="page-head"><div><span class="eyebrow">Deliverables</span><h1>Reports &amp; exports</h1></div></div>
@@ -399,6 +445,7 @@
     <script src="./js/evidence.js"></script>
     <script src="./js/llm.js"></script>
     <script src="./js/heuristics.js"></script>
+    <script src="./js/learning.js"></script>
     <script src="./js/agents.js"></script>
     <script src="./js/dataroom.js"></script>
     <script src="./js/review.js"></script>

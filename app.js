@@ -13,6 +13,7 @@ const navItems = [
   ["missing", "Missing Information", "circle-help"],
   ["risks", "Risk Center", "shield-alert"],
   ["memo", "Investment Memo", "file-pen-line"],
+  ["intelligence", "Deal Intelligence", "brain-circuit"],
   ["reports", "Reports", "download"],
   ["settings", "Settings", "settings"]
 ];
@@ -797,7 +798,7 @@ function renderMemo() {
   $("#recommendationBanner").innerHTML = rec ? `
     <div class="rec-pill rec-${rec.decision.replace(/\s+/g, "-").toLowerCase()}">
       <div><span class="eyebrow">Recommendation (${rec.source} engine)</span><strong>${escapeHtml(rec.decision)}</strong></div>
-      <div class="rec-meta"><span>${rec.confidence}% confidence</span><span>${escapeHtml(rec.rationale || "")}</span></div>
+      <div class="rec-meta"><span>${rec.confidence}% confidence</span>${rec.learning ? `<span>📈 Informed by ${rec.learning.comparables} comparable past deal(s)</span>` : ""}<span>${escapeHtml(rec.rationale || "")}</span></div>
     </div>` : `<p class="muted">Run the Recommendation Agent to generate a decision.</p>`;
 }
 
@@ -821,6 +822,95 @@ function renderSettings() {
   $("#llmApiKey").value = cfg.apiKey || "";
   $("#llmStatus").textContent = window.DD.llm.isConfigured() ? "Configured" : "Not configured";
   $("#llmStatus").className = `status-badge ${window.DD.llm.isConfigured() ? "success" : "info"}`;
+}
+
+/* ---- Deal Intelligence / Post-Deal Learning ---- */
+async function renderIntelligence() {
+  if (!currentProject || !window.DD.learning) return;
+  const L = window.DD.learning;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+
+  // 1) Comparable past deals for the current project.
+  const matches = await L.similar(currentProject);
+  const cmp = $("#comparableDeals");
+  if (!matches.length) {
+    cmp.innerHTML = `<p class="muted">No comparable past deals in the learning bank yet. As finalized outcomes are contributed, deals similar to this one (by type, industry, size, and risk profile) appear here and are fed to the agents.</p>`;
+  } else {
+    const sig = L.summarize(matches);
+    const chips = [`<span class="chip">${matches.length} matches</span>`];
+    if (sig.avgSuccess != null) chips.push(`<span class="chip">avg success ${sig.avgSuccess.toFixed(1)}/5</span>`);
+    if (sig.closedRate != null) chips.push(`<span class="chip">${pct(sig.closedRate)} closed</span>`);
+    if (sig.commonMissedRisks.length) chips.push(`<span class="chip danger">commonly missed: ${escapeHtml(sig.commonMissedRisks.slice(0, 3).join(", "))}</span>`);
+    cmp.innerHTML = `<div class="evidence-summary">${chips.join("")}</div>` + matches.map(({ record: r, score }) => `
+      <div class="file-row">
+        <div><div class="row-title">${escapeHtml(r.industry)} • ${escapeHtml(r.dealType)}</div>
+          <div class="row-sub">${escapeHtml(r.valueBand)} • prior call: ${escapeHtml(r.analysis?.recommendation?.decision || "—")} • ${r.outcome.materializedRisks.length} risk(s) materialized / ${r.outcome.missedRisks.length} missed</div></div>
+        <span class="status-badge ${r.outcome.closed ? "success" : "warning"}">${r.outcome.closed ? "Closed" : "Not closed"}</span>
+        <span>${r.outcome.successRating != null ? `${r.outcome.successRating}/5` : "—"}</span>
+        <strong>${pct(score)} match</strong>
+      </div>`).join("");
+  }
+
+  // 2) Learning bank aggregate stats.
+  const stats = await L.stats();
+  $("#learningStats").innerHTML = [
+    [stats.total, "Outcomes contributed"],
+    [stats.avgSuccess != null ? `${stats.avgSuccess.toFixed(1)}/5` : "—", "Avg investment success"],
+    [stats.closedRate != null ? pct(stats.closedRate) : "—", "Deals closed"],
+    [Object.keys(stats.byType).length, "Deal types represented"]
+  ].map(([v, l]) => `<article class="metric-card"><span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong><small></small></article>`).join("");
+
+  // 3) The outcome library (all consented records; you may delete your own).
+  const bank = (await L.all()).filter((r) => r.consent).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  $("#outcomeList").innerHTML = bank.length ? bank.map((r) => `
+    <div class="file-row">
+      <div><div class="row-title">${escapeHtml(r.industry)} • ${escapeHtml(r.dealType)} • ${escapeHtml(r.valueBand)}</div>
+        <div class="row-sub">${r.outcome.closed ? "Closed" : "Not closed"}${r.outcome.finalPrice ? ` • ${escapeHtml(r.outcome.finalPrice)}` : ""} • success ${r.outcome.successRating ?? "—"}/5 • ${new Date(r.createdAt).toLocaleDateString()}</div></div>
+      <span class="muted">${r.outcome.missedRisks.length} missed</span>
+      ${r.ownerId === currentUser?.id
+        ? `<button class="secondary-button" data-delete-outcome="${r.id}" title="Remove your contribution" style="color:var(--danger);">${icon("trash-2")}</button>`
+        : `<span class="muted">shared</span>`}
+    </div>`).join("") : `<p class="muted">No outcomes contributed yet. Record a finalized deal's outcome above to start building proprietary intelligence.</p>`;
+
+  // 4) Reset the form when switching projects; flag if this deal already has a record.
+  const form = $("#outcomeForm");
+  if (form && form.dataset.projectId !== currentProject.id) {
+    form.reset();
+    form.dataset.projectId = currentProject.id;
+    const status = $("#outcomeStatus");
+    const existing = await L.forProjectRecord(currentProject.id);
+    if (existing) { status.hidden = false; status.textContent = "An outcome is already recorded for this deal."; }
+    else { status.hidden = true; }
+  }
+  refreshIcons();
+}
+
+async function submitOutcome(form) {
+  if (!requireProject()) return;
+  const fd = new FormData(form);
+  if (fd.get("consent") !== "on") { showToast("Please confirm you have permission before contributing this outcome."); return; }
+  try {
+    await window.DD.learning.record(currentProject, {
+      consent: true,
+      closed: fd.get("closed") === "yes",
+      finalPrice: fd.get("finalPrice"),
+      materializedRisks: fd.get("materializedRisks"),
+      missedRisks: fd.get("missedRisks"),
+      successRating: fd.get("successRating"),
+      notes: fd.get("notes")
+    }, currentUser.id);
+    form.reset();
+    form.dataset.projectId = "";           // force the status line to refresh
+    renderIntelligence();
+    showToast("Outcome contributed. Future comparable deals will benefit from this lesson.");
+  } catch (error) { showToast(error.message); }
+}
+
+async function deleteOutcome(id) {
+  if (!window.confirm("Remove this contributed outcome from the learning bank? This cannot be undone.")) return;
+  await window.DD.learning.remove(id);
+  renderIntelligence();
+  showToast("Outcome removed from the learning bank.");
 }
 
 function renderEmptyWorkspace() {
@@ -852,6 +942,8 @@ function renderEmptyWorkspace() {
   $("#recommendationBanner").innerHTML = ""; $("#memoNav").innerHTML = "";
   const body = $("#memoBody"); body.innerHTML = muted("Create a project to draft a memo."); body.dataset.projectId = "";
   $("#financialMetricGrid").innerHTML = muted("No project selected.");
+  $("#comparableDeals").innerHTML = muted("Create a project to see comparable past deals.");
+  $("#learningStats").innerHTML = ""; $("#outcomeList").innerHTML = muted("No project selected.");
   renderSettings();
 }
 
@@ -867,6 +959,7 @@ function renderProjectSurfaces() {
   renderMissing();
   renderRisks();
   renderMemo();
+  renderIntelligence();
   renderReports();
   renderSettings();
   refreshIcons();
@@ -989,7 +1082,10 @@ function wireInteractions() {
     const evFor = event.target.closest("[data-evidence-for]"); if (evFor) { $("#evidenceFindingFilter").value = `finding:${evFor.dataset.evidenceFor}`; $("#evidenceConfidenceFilter").value = 0; showPage("evidence"); renderEvidence(); }
     const evItem = event.target.closest("[data-evidence]"); if (evItem) { renderEvidenceDetail(window.DD.evidence.byId(currentProject, evItem.dataset.evidence)); renderEvidence(); }
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
+    const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome);
   });
+
+  $("#outcomeForm").addEventListener("submit", (e) => { e.preventDefault(); submitOutcome(e.currentTarget); });
 
   $("#authTabs").addEventListener("click", (e) => { const b = e.target.closest("[data-auth-mode]"); if (b) setAuthMode(b.dataset.authMode); });
   $("#configureGoogle").addEventListener("click", promptForGoogleClientId);

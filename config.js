@@ -13,5 +13,5 @@
  * no per-user setup, exactly like other sites.
  */
 window.SENTINEL_CONFIG = {
-  googleClientId: ""
+  googleClientId: "159455844571-rkfnvlpptnf98k34pmif419biqurv96i.apps.googleusercontent.com"
 };
