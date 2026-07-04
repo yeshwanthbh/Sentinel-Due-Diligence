@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sentinel DD | AI Due Diligence Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-card">
+        <div class="brand auth-brand">
+          <img src="logo.svg" class="brand-mark" alt="Sentinel DD" />
+          <div>
+            <strong>Sentinel DD</strong>
+            <span>Secure diligence workspace</span>
+          </div>
+        </div>
+        <div class="auth-copy">
+          <span class="eyebrow">Authentication</span>
+          <h1>Sign in to your diligence operating system</h1>
+          <p>Accounts, projects, uploaded documents, evidence, findings, and reviewer actions are stored locally in IndexedDB for this prototype.</p>
+        </div>
+        <div class="tabs auth-tabs" id="authTabs">
+          <button class="tab-button active" data-auth-mode="login">Log in</button>
+          <button class="tab-button" data-auth-mode="signup">Create account</button>
+        </div>
+        <form id="authForm" class="auth-form">
+          <label class="field" id="nameField"><span>Full Name</span><input name="name" placeholder="Avery Stone" autocomplete="name" /></label>
+          <label class="field"><span>Email</span><input name="email" type="email" required placeholder="avery@firm.com" autocomplete="email" /></label>
+          <label class="field"><span>Password</span><input name="password" type="password" required minlength="6" placeholder="Minimum 6 characters" autocomplete="current-password" /></label>
+          <button class="primary-button" type="submit" id="authSubmit"><i data-lucide="log-in"></i>Log in</button>
+        </form>
+        <div class="auth-divider" id="socialDivider" hidden><span>or</span></div>
+        <div class="social-auth">
+          <div id="googleButton" class="google-button-slot"></div>
+          <p class="auth-subnote" id="googleHint"></p>
+          <button class="link-button" id="configureGoogle" type="button" hidden>Enter a Client ID for quick testing</button>
+        </div>
+        <p class="auth-note">Prototype database: your browser only. Use any test email and password, or sign in with Google.</p>
+      </div>
+    </section>
+
+    <div class="app-shell locked" id="appShell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <img src="logo.svg" class="brand-mark" alt="Sentinel DD" />
+          <div>
+            <strong>Sentinel DD</strong>
+            <span>AI diligence OS</span>
+          </div>
+        </div>
+
+        <nav class="nav-list" id="navList"></nav>
+
+        <div class="sidebar-card">
+          <span class="eyebrow">Current Deal</span>
+          <strong id="sidebarProjectName">HelioGrid Energy</strong>
+          <p id="sidebarProjectMeta">Growth equity, $185M.</p>
+          <div class="mini-progress"><span id="sidebarProjectProgress" style="width: 72%"></span></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="search-wrap">
+            <i data-lucide="search"></i>
+            <input id="globalSearch" type="search" placeholder="Search projects, findings, evidence, agents..." />
+          </div>
+          <div class="topbar-actions">
+            <select class="project-switcher" id="projectSwitcher" aria-label="Open saved project"></select>
+            <button class="secondary-button" id="saveProjectBtn"><i data-lucide="save"></i>Save</button>
+            <button class="icon-button" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"><i data-lucide="moon"></i></button>
+            <button class="primary-button" id="newProjectBtn"><i data-lucide="plus"></i>New Project</button>
+            <button class="secondary-button" id="logoutBtn"><i data-lucide="log-out"></i><span id="userLabel">Logout</span></button>
+          </div>
+        </header>
+
+        <!-- DASHBOARD -->
+        <section class="page active" id="dashboard">
+          <div class="page-head">
+            <div>
+              <span class="eyebrow">Portfolio Command Center</span>
+              <h1>Active diligence workspace</h1>
+            </div>
+            <div class="health-pill"><span></span>AI systems healthy</div>
+          </div>
+          <div class="metric-grid">
+            <article class="metric-card"><span>Active Projects</span><strong>0</strong><small>—</small></article>
+            <article class="metric-card"><span>Documents</span><strong>0</strong><small>—</small></article>
+            <article class="metric-card"><span>Evidence Items</span><strong>0</strong><small>—</small></article>
+            <article class="metric-card"><span>Open Findings</span><strong>0</strong><small>—</small></article>
+          </div>
+          <div class="dashboard-grid">
+            <article class="panel wide">
+              <div class="panel-head"><div><span class="eyebrow">Project Pipeline</span><h2>Live diligence projects</h2></div><button class="ghost-button" data-target="projects">View all</button></div>
+              <div class="project-table" id="projectTable"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">AI Progress</span><h2>Specialist team</h2></div></div>
+              <div class="agent-stack" id="agentStack"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">Activity</span><h2>Recent actions</h2></div></div>
+              <div class="notification-list" id="notifications"></div>
+            </article>
+            <article class="panel wide">
+              <div class="panel-head"><div><span class="eyebrow">Deliverables</span><h2>Export reports</h2></div><button class="ghost-button" data-target="reports">Open reports</button></div>
+              <div class="report-strip" id="recentReports"></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- PROJECTS -->
+        <section class="page" id="projects">
+          <div class="page-head">
+            <div><span class="eyebrow">Deal Workspace</span><h1>Projects</h1></div>
+            <button class="primary-button" id="newProjectBtnSecondary"><i data-lucide="plus"></i>New Project</button>
+          </div>
+          <div class="kanban" id="projectKanban"></div>
+        </section>
+
+        <!-- DATA ROOM -->
+        <section class="page" id="data-room">
+          <div class="page-head">
+            <div><span class="eyebrow">Virtual Data Room</span><h1 id="dataRoomTitle">Upload, classify, and reconcile diligence materials</h1></div>
+            <div class="button-row">
+              <button class="secondary-button" id="clearDataRoomSearch" type="button"><i data-lucide="x"></i>Clear Search</button>
+              <button class="primary-button" id="uploadDocuments" type="button"><i data-lucide="upload"></i>Upload Files</button>
+            </div>
+          </div>
+          <div class="data-room-layout">
+            <article class="upload-zone" id="uploadZone">
+              <input id="documentInput" class="file-input" type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,.csv,.zip,.txt,.tsv" />
+              <input id="folderInput" class="file-input" type="file" webkitdirectory directory multiple />
+              <i data-lucide="cloud-upload"></i>
+              <h2 id="uploadZoneTitle">Drop documents or a folder here</h2>
+              <p>PDF, DOCX, XLSX, PPTX, CSV, ZIP. Drop an entire folder and every file inside is ingested. Text is extracted (OCR when needed), files are deduplicated, categorized, and mapped to your workflow automatically.</p>
+              <div class="button-row">
+                <button class="secondary-button" id="browseDocuments" type="button"><i data-lucide="file"></i>Browse Files</button>
+                <button class="secondary-button" id="browseFolder" type="button"><i data-lucide="folder-open"></i>Browse Folder</button>
+              </div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">Workflow Coverage</span><h2 id="coverageHeading">Document coverage</h2></div></div>
+              <div class="coverage-list" id="coverageList"></div>
+              <div class="missing-inline" id="missingInline"></div>
+            </article>
+          </div>
+          <article class="panel upload-progress-panel" id="uploadProgressPanel">
+            <div class="panel-head">
+              <div><span class="eyebrow">Secure Intake</span><h2>Upload progress</h2></div>
+              <span class="status-badge success" id="secureStorageStatus">Encrypted local storage</span>
+            </div>
+            <div class="upload-queue" id="uploadQueue"><p class="muted">No active uploads. Drop files above to begin secure intake.</p></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div><span class="eyebrow">Uploaded Files</span><h2>Searchable document inventory</h2></div>
+              <span class="status-badge info" id="processingSummary">0 documents</span>
+            </div>
+            <div class="inventory-toolbar">
+              <label class="field inventory-search"><span>Search inventory</span><input id="dataRoomSearch" type="search" placeholder="Search filename, category, type, status..." /></label>
+              <label class="field"><span>Category</span><select id="categoryFilter"></select></label>
+            </div>
+            <div class="file-table" id="fileTable"></div>
+          </article>
+        </section>
+
+        <!-- ANALYSIS ORCHESTRATOR -->
+        <section class="page" id="analysis">
+          <div class="page-head">
+            <div><span class="eyebrow">Diligence Analysis</span><h1>AI orchestrator</h1></div>
+            <div class="button-row">
+              <span class="status-badge info" id="analysisProviderBadge">Ready</span>
+              <button class="primary-button" id="runOrchestrator" type="button"><i data-lucide="play"></i>Start Analysis</button>
+            </div>
+          </div>
+          <div id="orchestratorProgress"></div>
+        </section>
+
+        <!-- FINANCIAL AGENT (hidden) -->
+        <section class="page" id="financial-agent" style="display:none;">
+          <div class="page-head">
+            <div><span class="eyebrow">Financial Specialist</span><h1>Financial Due Diligence Agent</h1></div>
+            <div class="button-row">
+              <button class="secondary-button" id="loadSampleFinancials" type="button"><i data-lucide="table"></i>Load Sample</button>
+              <button class="primary-button" id="runFinancialAgent" type="button"><i data-lucide="calculator"></i>Run Analysis</button>
+            </div>
+          </div>
+          <div class="financial-workspace">
+            <article class="panel financial-input-panel">
+              <div class="panel-head"><div><span class="eyebrow">Statement Intake</span><h2>Upload or paste financial statement data</h2></div><span class="status-badge info" id="financialSourceBadge">No data</span></div>
+              <label class="financial-file-drop" for="financialFileInput">
+                <input id="financialFileInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls" />
+                <i data-lucide="file-spreadsheet"></i>
+                <span>CSV, TSV, XLSX, or copied spreadsheet export</span>
+              </label>
+              <label class="field financial-textarea"><span>Financial statement rows</span><textarea id="financialStatementInput" spellcheck="false" placeholder="Revenue, 100, 120, 145&#10;COGS, 40, 46, 52&#10;EBITDA, 12, 18, 24"></textarea></label>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">Agent Coverage</span><h2>Workstreams analyzed</h2></div></div>
+              <div class="agent-checklist" id="financialChecklist"></div>
+            </article>
+          </div>
+          <div class="financial-metric-grid" id="financialMetricGrid"></div>
+          <div class="financial-analysis-grid">
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Anomaly Detection</span><h2>Flags &amp; irregularities</h2></div></div><div class="financial-table" id="financialTrendTable"></div></article>
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Valuation Support</span><h2>Indicative multiple bridge</h2></div></div><div class="valuation-panel" id="valuationPanel"></div></article>
+          </div>
+          <div class="financial-analysis-grid">
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="findings">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Evidence Engine</span><h2>Source-linked calculations</h2></div><button class="ghost-button" data-target="evidence">Open evidence</button></div><div class="evidence-link-list" id="financialEvidenceList"></div></article>
+          </div>
+        </section>
+
+        <!-- RESEARCH (hidden) -->
+        <section class="page" id="research" style="display:none;">
+          <div class="page-head">
+            <div><span class="eyebrow">External Intelligence</span><h1>Research &amp; market intelligence</h1></div>
+            <button class="primary-button" id="runResearchAgent" type="button"><i data-lucide="globe"></i>Run Research Agent</button>
+          </div>
+          <div class="research-grid" id="researchGrid"><p class="muted">Run the Research Agent to gather company overview, competitors, executives, news, patents, filings, and market data with citations.</p></div>
+        </section>
+
+        <!-- FINDINGS -->
+        <section class="page" id="findings">
+          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings center</h1></div></div>
+          <div class="tabs" id="findingTabs"></div>
+          <div class="finding-list" id="findingList"></div>
+        </section>
+
+        <!-- EVIDENCE -->
+        <section class="page" id="evidence">
+          <div class="page-head">
+            <div><span class="eyebrow">Citation Engine</span><h1>Evidence explorer</h1></div>
+            <div class="button-row">
+              <button class="secondary-button" id="copyEvidenceApi"><i data-lucide="braces"></i>Copy API contract</button>
+              <button class="primary-button" id="exportEvidenceBundle"><i data-lucide="download"></i>Export evidence</button>
+            </div>
+          </div>
+          <div class="evidence-toolbar">
+            <label class="field"><span>Finding or Agent</span><select id="evidenceFindingFilter"></select></label>
+            <label class="field"><span>Minimum Confidence: <b id="evidenceConfidenceValue">70</b>%</span><input id="evidenceConfidenceFilter" type="range" min="0" max="99" value="70" /></label>
+            <label class="field"><span>Source Type</span><select id="evidenceSourceFilter"><option value="all">All sources</option><option value="table">Tables</option><option value="paragraph">Paragraphs</option></select></label>
+          </div>
+          <div class="evidence-summary" id="evidenceSummary"></div>
+          <div class="evidence-layout">
+            <article class="panel evidence-results">
+              <div class="panel-head"><div><span class="eyebrow">Extracted Facts</span><h2 id="evidenceResultTitle">Source-backed fact registry</h2></div><span class="confidence" id="evidenceAverageConfidence">0%</span></div>
+              <div class="evidence-list" id="evidenceList"></div>
+            </article>
+            <article class="panel evidence-doc" id="evidenceDetail"><p class="muted">Select an evidence item to view its source excerpt and citation.</p></article>
+          </div>
+        </section>
+
+        <!-- MISSING -->
+        <section class="page" id="missing">
+          <div class="page-head"><div><span class="eyebrow">Request List</span><h1>Missing information center</h1></div></div>
+          <div class="missing-grid" id="missingGrid"></div>
+        </section>
+
+        <!-- RISKS -->
+        <section class="page" id="risks">
+          <div class="page-head">
+            <div><span class="eyebrow">Risk Register</span><h1>Risk center</h1></div>
+            <button class="primary-button" id="runRiskAgent" type="button"><i data-lucide="shield-alert"></i>Rebuild Register</button>
+          </div>
+          <div class="risk-profile" id="riskProfile"></div>
+          <div class="risk-columns" id="riskColumns"></div>
+        </section>
+
+        <!-- MEMO -->
+        <section class="page" id="memo">
+          <div class="page-head">
+            <div><span class="eyebrow">Investment Committee</span><h1>Editable investment memo</h1></div>
+            <div class="button-row">
+              <button class="secondary-button" id="generateMemo"><i data-lucide="sparkles"></i>Generate Memo</button>
+              <button class="secondary-button" id="exportMemoWord"><i data-lucide="file-text"></i>Export Word</button>
+              <button class="primary-button" id="exportMemoPdf"><i data-lucide="download"></i>Export PDF</button>
+            </div>
+          </div>
+          <div class="memo-progress" id="memoProgress" hidden>
+            <div class="memo-progress-head"><strong id="memoProgressLabel">Generating investment memo…</strong><span id="memoProgressPct">0%</span></div>
+            <div class="progress-track"><span id="memoProgressBar" style="width:0%"></span></div>
+            <div class="memo-progress-sub" id="memoProgressSub">Orchestrating specialist agents…</div>
+          </div>
+          <div class="recommendation-banner" id="recommendationBanner"></div>
+          <article class="memo-editor">
+            <div class="memo-nav" id="memoNav"></div>
+            <div class="memo-body" id="memoBody" contenteditable="true" spellcheck="false"></div>
+          </article>
+        </section>
+
+        <!-- REPORTS -->
+        <section class="page" id="reports">
+          <div class="page-head"><div><span class="eyebrow">Deliverables</span><h1>Reports &amp; exports</h1></div></div>
+          <div class="reports-grid" id="reportsGrid"></div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="page" id="settings">
+          <div class="page-head"><div><span class="eyebrow">Workspace</span><h1>Settings</h1></div></div>
+          <div class="settings-grid">
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">AI Engine</span><h2>Model provider</h2></div><span class="status-badge info" id="llmStatus">Not configured</span></div>
+              <p class="muted">Agents are built on an existing model (Claude or ChatGPT) specialized via prompts. Add a key to enable live analysis; otherwise the deterministic engine runs. Keys are stored only in your browser.</p>
+              <label class="field"><span>Provider</span><select id="llmProvider"><option value="claude">Anthropic Claude</option><option value="openai">OpenAI ChatGPT</option></select></label>
+              <label class="field"><span>Model</span><input id="llmModel" placeholder="claude-opus-4-8" /></label>
+              <label class="field"><span>API Key</span><input id="llmApiKey" type="password" placeholder="sk-..." autocomplete="off" /></label>
+              <div class="button-row">
+                <button class="primary-button" id="saveLlmConfig"><i data-lucide="save"></i>Save engine config</button>
+                <button class="secondary-button" id="testLlmConfig" type="button"><i data-lucide="plug-zap"></i>Test connection</button>
+              </div>
+              <div class="llm-test-result" id="llmTestResult" hidden></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><div><span class="eyebrow">Workspace</span><h2>General settings</h2></div></div>
+              <label class="toggle-row"><span>Require human approval before memo insertion</span><input type="checkbox" checked /></label>
+              <label class="toggle-row"><span>Show contradicting evidence by default</span><input type="checkbox" checked /></label>
+              <div class="button-row"><button class="secondary-button" id="clearAllProjects" type="button"><i data-lucide="trash-2"></i>Delete all projects</button></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- MODALS -->
+    <dialog class="modal" id="projectModal">
+      <form method="dialog" class="modal-card" id="projectForm">
+        <div class="modal-head"><div><span class="eyebrow">Create Project</span><h2>New diligence project</h2></div><button class="icon-button" aria-label="Close" type="button" onclick="document.getElementById('projectModal').close();"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+          <label class="field span-2"><span>Company Name</span><input name="company" required placeholder="e.g. Northstar Health" /></label>
+          <label class="field span-2"><span>Industry</span><input name="industry" required placeholder="Healthcare software" /></label>
+          <label class="field span-2"><span>Deal Type</span>
+            <div class="radio-group">
+              <label class="radio-label"><input type="radio" name="dealType" value="VC" required /> Venture Capital</label>
+              <label class="radio-label"><input type="radio" name="dealType" value="PE" /> Private Equity</label>
+              <label class="radio-label"><input type="radio" name="dealType" value="M&A" /> M&A</label>
+            </div>
+          </label>
+          <label class="field"><span>Team Members</span><input name="team" placeholder="Add names or emails" /></label>
+          <label class="field"><span>Deal Value</span><input name="value" placeholder="$185M" /></label>
+          <label class="field"><span>Expected Close Date</span><input name="close" type="date" /></label>
+        </div>
+        <menu class="modal-actions">
+          <button class="secondary-button" type="button" onclick="document.getElementById('projectModal').close();">Cancel</button>
+          <button class="primary-button" id="createProject" type="submit"><i data-lucide="arrow-right"></i>Create and open Data Room</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="agentModal">
+      <div class="modal-card">
+        <div class="modal-head"><div><span class="eyebrow">AI Specialist</span><h2 id="agentModalTitle">Agent details</h2></div><button class="icon-button" id="closeAgentModal" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div id="agentModalBody"></div>
+      </div>
+    </dialog>
+
+    <dialog class="modal" id="reviewModal">
+      <form method="dialog" class="modal-card" id="reviewForm">
+        <div class="modal-head"><div><span class="eyebrow" id="reviewModalKind">Review finding</span><h2 id="reviewModalTitle">Finding</h2></div><button class="icon-button" value="cancel" aria-label="Close" type="submit"><i data-lucide="x"></i></button></div>
+        <div class="form-grid" id="reviewEditFields">
+          <label class="field span-2"><span>Title</span><input id="reviewTitle" /></label>
+          <label class="field span-2"><span>Summary</span><textarea id="reviewSummary" rows="3"></textarea></label>
+          <label class="field"><span>Severity</span><select id="reviewSeverity"><option>High</option><option>Medium</option><option>Low</option></select></label>
+          <label class="field"><span>Confidence</span><input id="reviewConfidence" type="number" min="1" max="99" /></label>
+        </div>
+        <label class="field"><span>Reviewer note / comment</span><textarea id="reviewNote" rows="2" placeholder="Optional note recorded in the audit log"></textarea></label>
+        <div class="review-history"><h3>Version &amp; review history</h3><div id="reviewHistory"></div></div>
+        <menu class="modal-actions">
+          <button class="secondary-button" value="cancel" type="submit">Close</button>
+          <button class="primary-button" id="reviewSave" value="default"><i data-lucide="check"></i>Save action</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- parsing / export libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- Sentinel modules (load order matters) -->
+    <script src="./js/store.js"></script>
+    <script src="./js/extract.js"></script>
+    <script src="./js/classify.js"></script>
+    <script src="./js/evidence.js"></script>
+    <script src="./js/llm.js"></script>
+    <script src="./js/heuristics.js"></script>
+    <script src="./js/agents.js"></script>
+    <script src="./js/dataroom.js"></script>
+    <script src="./js/review.js"></script>
+    <script src="./js/exporter.js"></script>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
