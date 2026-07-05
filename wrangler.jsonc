@@ -1,7 +1,37 @@
 {
+  // Sentinel DD — Cloudflare Worker + static assets + D1 + R2.
+  //
+  // First-time setup (see BACKEND.md for the full walkthrough):
+  //   npx wrangler d1 create sentinel-dd     -> paste the returned database_id below
+  //   npx wrangler r2 bucket create sentinel-dd-docs
+  //   npx wrangler d1 execute sentinel-dd --remote --file=./schema.sql
+  //   npx wrangler secret put ANTHROPIC_API_KEY   (and/or OPENAI_API_KEY)
+  //
+  // NOTE: the frontend files still live in the repo root. Before deploying, move
+  // the static app into ./public (see BACKEND.md) so the Worker source under
+  // ./worker is never served as a public asset; "assets.directory" already
+  // points at ./public in anticipation of that move.
   "name": "sentinel-due-diligence",
+  "main": "worker/index.js",
   "compatibility_date": "2024-11-01",
   "assets": {
-    "directory": "./"
-  }
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "GOOGLE_CLIENT_ID": "159455844571-rkfnvlpptnf98k34pmif419biqurv96i.apps.googleusercontent.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sentinel-dd",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCS",
+      "bucket_name": "sentinel-dd-docs"
+    }
+  ]
 }
