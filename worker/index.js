@@ -72,6 +72,18 @@ async function route(request, env, ctx, url) {
     if (method === "DELETE") return deleteProject(request, env, id);
   }
 
+  // ---- documents (R2-backed, auth required) ----
+  const docsListMatch = /^\/api\/projects\/([^/]+)\/documents$/.exec(path);
+  if (docsListMatch) {
+    const pid = decodeURIComponent(docsListMatch[1]);
+    if (method === "GET") return listDocuments(request, env, pid);
+    if (method === "POST") return uploadDocument(request, env, pid);
+  }
+  const docContentMatch = /^\/api\/documents\/([^/]+)\/content$/.exec(path);
+  if (docContentMatch && method === "GET") return getDocumentContent(request, env, decodeURIComponent(docContentMatch[1]));
+  const docMatch = /^\/api\/documents\/([^/]+)$/.exec(path);
+  if (docMatch && method === "DELETE") return deleteDocument(request, env, decodeURIComponent(docMatch[1]));
+
   // ---- learning bank / outcomes (auth required) ----
   if (path === "/api/outcomes" && method === "POST") return recordOutcome(request, env);
   if (path === "/api/outcomes/mine" && method === "GET") return myOutcomes(request, env);
@@ -79,6 +91,9 @@ async function route(request, env, ctx, url) {
   if (path === "/api/outcomes/stats" && method === "GET") return outcomeStats(request, env);
   const outMatch = /^\/api\/outcomes\/([^/]+)$/.exec(path);
   if (outMatch && method === "DELETE") return deleteOutcome(request, env, decodeURIComponent(outMatch[1]));
+
+  // ---- LLM proxy (auth required; keys are server secrets) ----
+  if (path === "/api/llm" && method === "POST") return llmProxy(request, env);
 
   return json({ error: "Not found" }, 404);
 }
@@ -258,6 +273,94 @@ async function persistProject(env, ownerId, project) {
     project.dealType || null, project.status || null, project.progress || 0,
     JSON.stringify(project), project.createdAt, project.updatedAt
   ).run();
+}
+
+/* ----------------------------------------------- documents (R2-backed) */
+// Raw file bytes — the confidential material — live in R2, never in D1 or the
+// browser's reach beyond the owner. The documents table holds metadata + the R2
+// key. Extracted text is stored as a sibling ".txt" object so the server-side
+// LLM proxy can analyze documents without re-parsing binaries.
+async function assertProjectOwner(env, user, projectId) {
+  const row = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND owner_id = ?").bind(projectId, user.id).first();
+  if (!row) { const e = new Error("Project not found."); e.status = 404; throw e; }
+}
+
+async function uploadDocument(request, env, projectId) {
+  const user = await requireUser(request, env);
+  await assertProjectOwner(env, user, projectId);
+  if (!env.DOCS) return json({ error: "Document storage is not configured." }, 503);
+
+  const form = await request.formData();
+  const file = form.get("file");
+  if (!file || typeof file === "string") return json({ error: "A file is required." }, 400);
+
+  const docId = uuid();
+  const key = `${user.id}/${projectId}/${docId}`;
+  await env.DOCS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type || "application/octet-stream" }
+  });
+  const text = form.get("text");
+  if (typeof text === "string" && text) await env.DOCS.put(`${key}.txt`, text);
+
+  const doc = {
+    id: docId,
+    project_id: projectId,
+    owner_id: user.id,
+    name: (form.get("name") || file.name || "document").toString(),
+    category: (form.get("category") || "Uncategorized").toString(),
+    doc_type: (form.get("docType") || "").toString(),
+    r2_key: key,
+    size: file.size || null,
+    content_hash: (form.get("contentHash") || "").toString() || null,
+    created_at: new Date().toISOString()
+  };
+  await env.DB.prepare(
+    `INSERT INTO documents (id, project_id, owner_id, name, category, doc_type, r2_key, size, content_hash, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).bind(doc.id, doc.project_id, doc.owner_id, doc.name, doc.category, doc.doc_type, doc.r2_key, doc.size, doc.content_hash, doc.created_at).run();
+
+  return json({ document: docToJson(doc) }, 201);
+}
+
+async function listDocuments(request, env, projectId) {
+  const user = await requireUser(request, env);
+  await assertProjectOwner(env, user, projectId);
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM documents WHERE project_id = ? AND owner_id = ? ORDER BY created_at DESC"
+  ).bind(projectId, user.id).all();
+  return json({ documents: (results || []).map(docToJson) });
+}
+
+async function getDocumentContent(request, env, id) {
+  const user = await requireUser(request, env);
+  const doc = await env.DB.prepare("SELECT * FROM documents WHERE id = ? AND owner_id = ?").bind(id, user.id).first();
+  if (!doc) return json({ error: "Document not found." }, 404);
+  if (!env.DOCS) return json({ error: "Document storage is not configured." }, 503);
+  const object = await env.DOCS.get(doc.r2_key);
+  if (!object) return json({ error: "File missing from storage." }, 404);
+  const headers = new Headers();
+  headers.set("content-type", object.httpMetadata?.contentType || "application/octet-stream");
+  headers.set("content-disposition", `attachment; filename="${doc.name.replace(/"/g, "")}"`);
+  return new Response(object.body, { headers });
+}
+
+async function deleteDocument(request, env, id) {
+  const user = await requireUser(request, env);
+  const doc = await env.DB.prepare("SELECT * FROM documents WHERE id = ? AND owner_id = ?").bind(id, user.id).first();
+  if (!doc) return json({ error: "Document not found." }, 404);
+  if (env.DOCS) {
+    await env.DOCS.delete(doc.r2_key).catch(() => {});
+    await env.DOCS.delete(`${doc.r2_key}.txt`).catch(() => {});
+  }
+  await env.DB.prepare("DELETE FROM documents WHERE id = ? AND owner_id = ?").bind(id, user.id).run();
+  return json({ ok: true });
+}
+
+function docToJson(d) {
+  return {
+    id: d.id, projectId: d.project_id, name: d.name, category: d.category,
+    docType: d.doc_type, size: d.size, contentHash: d.content_hash, createdAt: d.created_at
+  };
 }
 
 /* ------------------------------------------- learning bank (outcomes) */
@@ -470,6 +573,71 @@ function clampRating(v) {
   return Math.min(5, Math.max(1, n));
 }
 function safeParse(text) { try { return JSON.parse(text); } catch { return {}; } }
+
+/* ----------------------------------------------------------- LLM proxy */
+// The model API key lives ONLY here as a Worker secret — never shipped to the
+// browser (fixes the prototype's client-side key). Every call is authenticated
+// and metered per user/day so a leaked session can't run up an unbounded bill.
+const LLM_DAILY_LIMIT = 200;
+
+async function llmProxy(request, env) {
+  const user = await requireUser(request, env);
+  const { system, user: userMsg, provider: reqProvider, model: reqModel, maxTokens } = await readJson(request);
+  if (!system || !userMsg) return json({ error: "system and user are required." }, 400);
+
+  const provider = (reqProvider || env.DEFAULT_LLM_PROVIDER || "claude").toLowerCase();
+  const key = provider === "openai" ? env.OPENAI_API_KEY : env.ANTHROPIC_API_KEY;
+  if (!key) return json({ error: `Server has no ${provider} key configured.` }, 503);
+
+  // ---- per-user daily rate limit ----
+  const day = new Date().toISOString().slice(0, 10);
+  const usage = await env.DB.prepare("SELECT calls FROM llm_usage WHERE user_id = ? AND day = ?").bind(user.id, day).first();
+  if (usage && usage.calls >= LLM_DAILY_LIMIT) {
+    return json({ error: `Daily analysis limit reached (${LLM_DAILY_LIMIT}). Try again tomorrow.` }, 429);
+  }
+
+  let text;
+  try {
+    text = provider === "openai"
+      ? await callOpenAI(system, userMsg, key, reqModel || "gpt-4o")
+      : await callClaude(system, userMsg, key, reqModel || "claude-opus-4-8", maxTokens || 2000);
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+
+  // Best-effort metering (never block the response on the counter write).
+  await env.DB.prepare(
+    `INSERT INTO llm_usage (id, user_id, day, calls) VALUES (?,?,?,1)
+     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1`
+  ).bind(uuid(), user.id, day).run().catch(() => {});
+
+  return json({ text });
+}
+
+async function callClaude(system, user, apiKey, model, maxTokens) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] })
+  });
+  if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return (data.content || []).map((b) => b.text || "").join("");
+}
+
+async function callOpenAI(system, user, apiKey, model) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model, response_format: { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content: user }]
+    })
+  });
+  if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
 
 /* ------------------------------------------------------- session helpers */
 async function withSession(env, user, res) {

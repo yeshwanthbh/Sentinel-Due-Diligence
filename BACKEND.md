@@ -10,10 +10,10 @@ It is a work in progress; this file tracks what's done and how to run it.
 | D1 schema (`schema.sql`) | ✅ users, sessions, projects, documents, outcomes, llm_usage |
 | Worker + routing (`worker/index.js`) | ✅ scaffold + static-asset passthrough |
 | Auth API | ✅ signup / login / logout / me / Google (verified server-side) |
-| Projects API | ⏳ not yet |
-| Learning-bank API (cross-tenant) | ⏳ not yet |
-| Document storage (R2) | ⏳ not yet |
-| Server-side LLM proxy | ⏳ not yet |
+| Projects API | ✅ list / get / create / save / delete (owner-enforced) |
+| Learning-bank API (cross-tenant) | ✅ record / mine / delete / stats / similar (anonymized) |
+| Document storage (R2) | ✅ upload / list / download / delete (owner-enforced) |
+| Server-side LLM proxy | ✅ /api/llm (key = server secret, per-user daily limit) |
 | Frontend migration off IndexedDB | ⏳ not yet |
 
 Until the frontend migration lands, the app still runs fully client-side against
@@ -81,6 +81,22 @@ npx wrangler deploy
 | POST | `/api/auth/google` | `{credential}` | Google ID token, **verified server-side** |
 | POST | `/api/auth/logout` | — | clears session |
 | GET  | `/api/auth/me`     | — | current user or `{user:null}` |
+| GET  | `/api/projects` | — | list caller's projects |
+| POST | `/api/projects` | `{project}` | create |
+| GET/PUT/DELETE | `/api/projects/:id` | `{project}` | get / save / delete (owner-only) |
+| GET/POST | `/api/projects/:id/documents` | multipart | list / upload (file → R2, text → `.txt` sibling) |
+| GET  | `/api/documents/:id/content` | — | stream file bytes (owner-only) |
+| DELETE | `/api/documents/:id` | — | delete file + metadata |
+| POST | `/api/outcomes` | `{industry,dealType,analysis,outcome,consent}` | contribute (consent required) |
+| GET  | `/api/outcomes/mine` | — | caller's own contributions (full detail) |
+| DELETE | `/api/outcomes/:id` | — | delete own contribution |
+| POST | `/api/outcomes/similar` | `{industry,dealType,value,riskCounts}` | comparable deals, **anonymized cross-tenant** |
+| GET  | `/api/outcomes/stats` | — | learning-bank aggregates |
+| POST | `/api/llm` | `{system,user,provider?,model?}` | model proxy; key is a server secret; metered per user/day |
+
+All non-auth routes require a valid session. Verified end-to-end against a local
+D1+R2 via `wrangler dev` — including 401/404/409 paths and a planted-secret test
+proving `/api/outcomes/similar` never leaks owner, source project, or notes.
 
 **Security model:** passwords use PBKDF2-SHA256 (100k iterations) + per-user salt.
 Sessions are random 256-bit tokens delivered as an `HttpOnly; Secure; SameSite=Lax`
