@@ -14,10 +14,12 @@ It is a work in progress; this file tracks what's done and how to run it.
 | Learning-bank API (cross-tenant) | ✅ record / mine / delete / stats / similar (anonymized) |
 | Document storage (R2) | ✅ upload / list / download / delete (owner-enforced) |
 | Server-side LLM proxy | ✅ /api/llm (key = server secret, per-user daily limit) |
-| Frontend migration off IndexedDB | ⏳ not yet |
+| Frontend migration off IndexedDB | ✅ frontend talks to the API; served from `public/` |
 
-Until the frontend migration lands, the app still runs fully client-side against
-IndexedDB. The Worker can be developed and tested independently in the meantime.
+The app is now a real multi-user application: the frontend (in `public/`) talks
+to the Worker for all data and auth. **It must be served by the Worker** — a
+plain static host (e.g. GitHub Pages) has no `/api`, so sign-in returns HTTP 405.
+Use `npx wrangler dev` locally or `npx wrangler deploy` for production.
 
 ## One-time setup
 
@@ -42,21 +44,12 @@ npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put OPENAI_API_KEY
 ```
 
-## Before first deploy: move the frontend into `public/`
+## Project layout (done)
 
-The Worker source lives in `worker/`. `wrangler.jsonc` serves static assets from
-`./public`, so the app's static files must move there so `worker/` and `schema.sql`
-are never publicly downloadable:
-
-```bash
-mkdir public
-git mv index.html app.js config.js styles.css logo.svg favicon.png public/
-git mv js public/js
-```
-
-`server.rb` (local static dev) should then point its DocumentRoot at `public/`.
-The GitHub Pages workflow (`.github/workflows/static.yml`) can be removed once
-Cloudflare is the canonical deploy — Pages can't run the Worker backend.
+The frontend now lives in `public/` (served via the `ASSETS` binding); the Worker
+source is in `worker/`, kept out of `public/` so it's never publicly downloadable.
+The GitHub Pages workflow has been removed — Pages can't run the Worker backend,
+so it would only ever serve a broken (API-less) copy.
 
 ## Run locally
 
