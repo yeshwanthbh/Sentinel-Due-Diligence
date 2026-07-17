@@ -23,7 +23,7 @@
         <div class="auth-copy">
           <span class="eyebrow">Authentication</span>
           <h1>Sign in to your diligence operating system</h1>
-          <p>Accounts, projects, uploaded documents, evidence, findings, and reviewer actions are stored locally in IndexedDB for this prototype.</p>
+          <p>Accounts, projects, documents, evidence, findings, and reviewer actions are stored securely in your Sentinel workspace and synced across your devices.</p>
         </div>
         <div class="tabs auth-tabs" id="authTabs">
           <button class="tab-button active" data-auth-mode="login">Log in</button>
@@ -41,7 +41,7 @@
           <p class="auth-subnote" id="googleHint"></p>
           <button class="link-button" id="configureGoogle" type="button" hidden>Enter a Client ID for quick testing</button>
         </div>
-        <p class="auth-note">Prototype database: your browser only. Use any test email and password, or sign in with Google.</p>
+        <p class="auth-note">Create an account with email and password, or sign in with Google.</p>
       </div>
     </section>
 
@@ -354,12 +354,11 @@
           <div class="settings-grid">
             <article class="panel">
               <div class="panel-head"><div><span class="eyebrow">AI Engine</span><h2>Model provider</h2></div><span class="status-badge info" id="llmStatus">Not configured</span></div>
-              <p class="muted">Agents are built on an existing model (Claude or ChatGPT) specialized via prompts. Add a key to enable live analysis; otherwise the deterministic engine runs. Keys are stored only in your browser.</p>
-              <label class="field"><span>Provider</span><select id="llmProvider"><option value="claude">Anthropic Claude</option><option value="openai">OpenAI ChatGPT</option></select></label>
-              <label class="field"><span>Model</span><input id="llmModel" placeholder="claude-opus-4-8" /></label>
-              <label class="field"><span>API Key</span><input id="llmApiKey" type="password" placeholder="sk-..." autocomplete="off" /></label>
+              <p class="muted">Agents run on an existing model (Claude or ChatGPT) specialized via prompts. The model API key is held securely on the server — never in your browser. Choose your preferred provider/model below; if the server has no key, the deterministic engine runs. Analysis is rate-limited per user.</p>
+              <label class="field"><span>Preferred provider</span><select id="llmProvider"><option value="claude">Anthropic Claude</option><option value="openai">OpenAI ChatGPT</option></select></label>
+              <label class="field"><span>Preferred model</span><input id="llmModel" placeholder="claude-opus-4-8" /></label>
               <div class="button-row">
-                <button class="primary-button" id="saveLlmConfig"><i data-lucide="save"></i>Save engine config</button>
+                <button class="primary-button" id="saveLlmConfig"><i data-lucide="save"></i>Save preference</button>
                 <button class="secondary-button" id="testLlmConfig" type="button"><i data-lucide="plug-zap"></i>Test connection</button>
               </div>
               <div class="llm-test-result" id="llmTestResult" hidden></div>
@@ -441,6 +440,7 @@
 
     <!-- Sentinel modules (load order matters) -->
     <script src="./js/store.js"></script>
+    <script src="./js/api.js"></script>
     <script src="./js/extract.js"></script>
     <script src="./js/classify.js"></script>
     <script src="./js/evidence.js"></script>

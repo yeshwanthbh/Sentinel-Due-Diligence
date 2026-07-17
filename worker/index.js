@@ -94,6 +94,7 @@ async function route(request, env, ctx, url) {
 
   // ---- LLM proxy (auth required; keys are server secrets) ----
   if (path === "/api/llm" && method === "POST") return llmProxy(request, env);
+  if (path === "/api/llm/status" && method === "GET") return llmStatus(request, env);
 
   return json({ error: "Not found" }, 404);
 }
@@ -579,6 +580,15 @@ function safeParse(text) { try { return JSON.parse(text); } catch { return {}; }
 // browser (fixes the prototype's client-side key). Every call is authenticated
 // and metered per user/day so a leaked session can't run up an unbounded bill.
 const LLM_DAILY_LIMIT = 200;
+
+// Lets the frontend know whether the server has an AI key, without exposing it.
+async function llmStatus(request, env) {
+  await requireUser(request, env);
+  const provider = (env.DEFAULT_LLM_PROVIDER || "claude").toLowerCase();
+  const configured = Boolean(provider === "openai" ? env.OPENAI_API_KEY : env.ANTHROPIC_API_KEY)
+    || Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY);
+  return json({ configured, provider, dailyLimit: LLM_DAILY_LIMIT });
+}
 
 async function llmProxy(request, env) {
   const user = await requireUser(request, env);

@@ -1,6 +1,6 @@
 /* Sentinel DD — UI orchestration layer.
- * Delegates document processing, evidence, agents, review, and export to the js/ modules. */
-const SESSION_KEY = "sentinel-dd-session";
+ * Delegates document processing, evidence, agents, review, and export to the js/ modules.
+ * Data + auth now live server-side behind window.DD.api (Cloudflare Worker). */
 const { cryptoId, clone, escapeHtml } = window.DD.util;
 
 const navItems = [
@@ -45,34 +45,28 @@ function requireProject() {
 }
 
 /* ------------------------------------------------------------------ auth */
+// Auth now runs entirely server-side (Cloudflare Worker + D1). The browser holds
+// no password logic and no session token — the server sets an HttpOnly cookie.
 async function createAccount(formData) {
-  const email = String(formData.get("email")).trim().toLowerCase();
-  if (await window.DD.store.getByIndex("users", "email", email)) throw new Error("An account with that email already exists.");
-  const salt = window.DD.db.makeSalt();
-  const user = {
-    id: cryptoId(),
-    name: String(formData.get("name")).trim() || email.split("@")[0],
-    email, salt,
-    passwordHash: await window.DD.db.hashPassword(String(formData.get("password")), salt),
-    createdAt: new Date().toISOString()
-  };
-  await window.DD.store.put("users", user);
+  const { user } = await window.DD.api.auth.signup(
+    String(formData.get("email")).trim(),
+    String(formData.get("password")),
+    String(formData.get("name") || "").trim()
+  );
   return user;
 }
 
 async function login(formData) {
-  const email = String(formData.get("email")).trim().toLowerCase();
-  const user = await window.DD.store.getByIndex("users", "email", email);
-  if (!user) throw new Error("No account found for that email.");
-  if (!user.passwordHash && user.provider === "google") throw new Error("This account uses Google sign-in. Use the “Continue with Google” button.");
-  const passwordHash = await window.DD.db.hashPassword(String(formData.get("password")), user.salt);
-  if (passwordHash !== user.passwordHash) throw new Error("Incorrect password.");
+  const { user } = await window.DD.api.auth.login(
+    String(formData.get("email")).trim(),
+    String(formData.get("password"))
+  );
   return user;
 }
 
 async function setSession(user) {
   currentUser = user;
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
+  await window.DD.llm.refreshStatus();
   await loadProjects();
   $("#authScreen").classList.add("hidden");
   $("#appShell").classList.remove("locked");
@@ -80,14 +74,12 @@ async function setSession(user) {
   renderAll();
 }
 
+// Restore an existing session by asking the server who the cookie belongs to.
 async function restoreSession() {
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) return;
   try {
-    const { userId } = JSON.parse(raw);
-    const user = await window.DD.store.get("users", userId);
+    const { user } = await window.DD.api.auth.me();
     if (user) await setSession(user);
-  } catch { localStorage.removeItem(SESSION_KEY); }
+  } catch { /* not signed in / backend unreachable — stay on the auth screen */ }
 }
 
 /* ------------------------------------------------------ Google sign-in (GIS) */
@@ -101,49 +93,12 @@ function getGoogleClientId() {
 function setGoogleClientId(id) { localStorage.setItem(GOOGLE_CLIENT_ID_KEY, (id || "").trim()); }
 function googleRunnableOrigin() { return window.location.protocol === "http:" || window.location.protocol === "https:"; }
 
-// Decode a Google ID-token JWT payload (base64url) without a backend. For a local
-// prototype this is fine; a production app would verify the signature server-side.
-function decodeJwtPayload(token) {
-  const part = token.split(".")[1];
-  const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
-  const json = decodeURIComponent(
-    atob(base64).split("").map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`).join("")
-  );
-  return JSON.parse(json);
-}
-
-// Find or create a local user for a Google identity, keyed by email.
-async function upsertGoogleUser({ email, name, sub, picture }) {
-  const normalized = String(email || "").trim().toLowerCase();
-  if (!normalized) throw new Error("Google did not return an email address.");
-  let user = await window.DD.store.getByIndex("users", "email", normalized);
-  if (user) {
-    // Attach the Google identity to an existing account and refresh profile bits.
-    user.provider = "google";
-    user.googleId = sub || user.googleId || null;
-    if (picture) user.picture = picture;
-    if (!user.name && name) user.name = name;
-    await window.DD.store.put("users", user);
-    return user;
-  }
-  user = {
-    id: cryptoId(),
-    name: (name || normalized.split("@")[0]).trim(),
-    email: normalized,
-    provider: "google",
-    googleId: sub || null,
-    picture: picture || null,
-    createdAt: new Date().toISOString()
-  };
-  await window.DD.store.put("users", user);
-  return user;
-}
-
+// The raw Google ID token is sent to the server, which verifies its signature,
+// expiry, and audience before creating/linking the account. No client-side decode.
 async function handleGoogleCredential(response) {
   try {
     if (!response || !response.credential) throw new Error("No credential returned by Google.");
-    const claims = decodeJwtPayload(response.credential);
-    const user = await upsertGoogleUser({ email: claims.email, name: claims.name, sub: claims.sub, picture: claims.picture });
+    const { user } = await window.DD.api.auth.google(response.credential);
     await setSession(user);
     showToast(`Signed in as ${user.name} via Google.`);
   } catch (error) {
@@ -241,21 +196,9 @@ function newProjectRecord({ company, industry, type, team, value, close }, owner
   };
 }
 
-/* One-time removal of the legacy auto-seeded demo deals so existing accounts
- * become a clean slate. New accounts no longer seed anything. */
-async function clearLegacyDemos() {
-  if (localStorage.getItem("sentinel-dd-demos-cleared")) return;
-  const seedNames = new Set(["HelioGrid Energy", "Northstar Health", "Meridian Robotics", "Cobalt Payroll"]);
-  try {
-    const all = await window.DD.store.getAllByIndex("projects", "ownerId", currentUser.id);
-    await Promise.all(all.filter((p) => seedNames.has(p.name)).map((p) => window.DD.store.del("projects", p.id)));
-  } catch { /* ignore */ }
-  localStorage.setItem("sentinel-dd-demos-cleared", "1");
-}
-
 async function loadProjects(preferredId) {
-  await clearLegacyDemos();
-  projects = await window.DD.store.getAllByIndex("projects", "ownerId", currentUser.id);
+  const { projects: list } = await window.DD.api.projects.list();
+  projects = list || [];
   projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   currentProject = projects.find((p) => p.id === preferredId) || projects[0] || null;
 }
@@ -266,9 +209,9 @@ async function saveCurrentProject(reason = "Project saved") {
   currentProject.auditLog = currentProject.auditLog || [];
   currentProject.auditLog.unshift({ at: currentProject.updatedAt, action: reason });
   currentProject.auditLog = currentProject.auditLog.slice(0, 20);
-  await window.DD.store.put("projects", currentProject);
+  const { project } = await window.DD.api.projects.save(currentProject.id, currentProject);
   const idx = projects.findIndex((p) => p.id === currentProject.id);
-  if (idx >= 0) projects[idx] = currentProject;
+  if (idx >= 0) projects[idx] = project || currentProject;
 }
 
 function scheduleSave(reason) {
@@ -819,9 +762,9 @@ function renderSettings() {
   const cfg = window.DD.llm.getConfig();
   $("#llmProvider").value = cfg.provider;
   $("#llmModel").value = cfg.provider === "openai" ? cfg.openaiModel : cfg.claudeModel;
-  $("#llmApiKey").value = cfg.apiKey || "";
-  $("#llmStatus").textContent = window.DD.llm.isConfigured() ? "Configured" : "Not configured";
-  $("#llmStatus").className = `status-badge ${window.DD.llm.isConfigured() ? "success" : "info"}`;
+  const ready = window.DD.llm.isConfigured();
+  $("#llmStatus").textContent = ready ? "Server AI ready" : "Heuristic engine (no server key)";
+  $("#llmStatus").className = `status-badge ${ready ? "success" : "info"}`;
 }
 
 /* ---- Deal Intelligence / Post-Deal Learning ---- */
@@ -830,24 +773,23 @@ async function renderIntelligence() {
   const L = window.DD.learning;
   const pct = (v) => `${Math.round(v * 100)}%`;
 
-  // 1) Comparable past deals for the current project.
-  const matches = await L.similar(currentProject);
+  // 1) Comparable past deals for the current project (scored server-side).
   const cmp = $("#comparableDeals");
-  if (!matches.length) {
+  const { comparableDeals, signal } = await L.contextFor(currentProject);
+  if (!comparableDeals.length) {
     cmp.innerHTML = `<p class="muted">No comparable past deals in the learning bank yet. As finalized outcomes are contributed, deals similar to this one (by type, industry, size, and risk profile) appear here and are fed to the agents.</p>`;
   } else {
-    const sig = L.summarize(matches);
-    const chips = [`<span class="chip">${matches.length} matches</span>`];
-    if (sig.avgSuccess != null) chips.push(`<span class="chip">avg success ${sig.avgSuccess.toFixed(1)}/5</span>`);
-    if (sig.closedRate != null) chips.push(`<span class="chip">${pct(sig.closedRate)} closed</span>`);
-    if (sig.commonMissedRisks.length) chips.push(`<span class="chip danger">commonly missed: ${escapeHtml(sig.commonMissedRisks.slice(0, 3).join(", "))}</span>`);
-    cmp.innerHTML = `<div class="evidence-summary">${chips.join("")}</div>` + matches.map(({ record: r, score }) => `
+    const chips = [`<span class="chip">${comparableDeals.length} matches</span>`];
+    if (signal?.avgSuccess != null) chips.push(`<span class="chip">avg success ${signal.avgSuccess.toFixed(1)}/5</span>`);
+    if (signal?.closedRate != null) chips.push(`<span class="chip">${pct(signal.closedRate)} closed</span>`);
+    if (signal?.commonMissedRisks?.length) chips.push(`<span class="chip danger">commonly missed: ${escapeHtml(signal.commonMissedRisks.slice(0, 3).join(", "))}</span>`);
+    cmp.innerHTML = `<div class="evidence-summary">${chips.join("")}</div>` + comparableDeals.map((d) => `
       <div class="file-row">
-        <div><div class="row-title">${escapeHtml(r.industry)} • ${escapeHtml(r.dealType)}</div>
-          <div class="row-sub">${escapeHtml(r.valueBand)} • prior call: ${escapeHtml(r.analysis?.recommendation?.decision || "—")} • ${r.outcome.materializedRisks.length} risk(s) materialized / ${r.outcome.missedRisks.length} missed</div></div>
-        <span class="status-badge ${r.outcome.closed ? "success" : "warning"}">${r.outcome.closed ? "Closed" : "Not closed"}</span>
-        <span>${r.outcome.successRating != null ? `${r.outcome.successRating}/5` : "—"}</span>
-        <strong>${pct(score)} match</strong>
+        <div><div class="row-title">${escapeHtml(d.industry)} • ${escapeHtml(d.dealType)}</div>
+          <div class="row-sub">${escapeHtml(d.valueBand)} • prior call: ${escapeHtml(d.priorRecommendation || "—")} • ${d.outcome.materializedRisks.length} risk(s) materialized / ${d.outcome.missedRisks.length} missed</div></div>
+        <span class="status-badge ${d.outcome.closed ? "success" : "warning"}">${d.outcome.closed ? "Closed" : "Not closed"}</span>
+        <span>${d.outcome.successRating != null ? `${d.outcome.successRating}/5` : "—"}</span>
+        <strong>${d.similarity}% match</strong>
       </div>`).join("");
   }
 
@@ -857,20 +799,19 @@ async function renderIntelligence() {
     [stats.total, "Outcomes contributed"],
     [stats.avgSuccess != null ? `${stats.avgSuccess.toFixed(1)}/5` : "—", "Avg investment success"],
     [stats.closedRate != null ? pct(stats.closedRate) : "—", "Deals closed"],
-    [Object.keys(stats.byType).length, "Deal types represented"]
+    [Object.keys(stats.byType || {}).length, "Deal types represented"]
   ].map(([v, l]) => `<article class="metric-card"><span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong><small></small></article>`).join("");
 
-  // 3) The outcome library (all consented records; you may delete your own).
-  const bank = (await L.all()).filter((r) => r.consent).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  // 3) Your own contributions (delete-able). Other tenants' outcomes are never
+  //    listed individually — only surfaced anonymized under Comparable Deals.
+  const bank = await L.mine();
   $("#outcomeList").innerHTML = bank.length ? bank.map((r) => `
     <div class="file-row">
       <div><div class="row-title">${escapeHtml(r.industry)} • ${escapeHtml(r.dealType)} • ${escapeHtml(r.valueBand)}</div>
         <div class="row-sub">${r.outcome.closed ? "Closed" : "Not closed"}${r.outcome.finalPrice ? ` • ${escapeHtml(r.outcome.finalPrice)}` : ""} • success ${r.outcome.successRating ?? "—"}/5 • ${new Date(r.createdAt).toLocaleDateString()}</div></div>
-      <span class="muted">${r.outcome.missedRisks.length} missed</span>
-      ${r.ownerId === currentUser?.id
-        ? `<button class="secondary-button" data-delete-outcome="${r.id}" title="Remove your contribution" style="color:var(--danger);">${icon("trash-2")}</button>`
-        : `<span class="muted">shared</span>`}
-    </div>`).join("") : `<p class="muted">No outcomes contributed yet. Record a finalized deal's outcome above to start building proprietary intelligence.</p>`;
+      <span class="muted">${(r.outcome.missedRisks || []).length} missed</span>
+      <button class="secondary-button" data-delete-outcome="${r.id}" title="Remove your contribution" style="color:var(--danger);">${icon("trash-2")}</button>
+    </div>`).join("") : `<p class="muted">You haven't contributed any outcomes yet. Record a finalized deal's outcome above to start building proprietary intelligence.</p>`;
 
   // 4) Reset the form when switching projects; flag if this deal already has a record.
   const form = $("#outcomeForm");
@@ -898,7 +839,7 @@ async function submitOutcome(form) {
       missedRisks: fd.get("missedRisks"),
       successRating: fd.get("successRating"),
       notes: fd.get("notes")
-    }, currentUser.id);
+    });
     form.reset();
     form.dataset.projectId = "";           // force the status line to refresh
     renderIntelligence();
@@ -1052,10 +993,10 @@ async function deleteProject(projectId) {
   // Cancel any pending debounced save so it can't write a stale copy back after delete.
   if (deletingCurrent) window.clearTimeout(saveTimer);
 
-  // Remove the project record itself.
-  await window.DD.store.del("projects", projectId);
-  // Remove its orphaned document blobs (stored separately, keyed by document id).
-  await Promise.all((project.documents || []).map((doc) => window.DD.store.del("docblobs", doc.id).catch(() => {})));
+  // The server deletes the project row and cascades its documents + R2 objects.
+  try {
+    await window.DD.api.projects.del(projectId);
+  } catch (error) { showToast(`Delete failed: ${error.message}`); return; }
 
   projects = projects.filter((p) => p.id !== projectId);
 
@@ -1095,7 +1036,7 @@ function wireInteractions() {
     try {
       const user = authMode === "signup" ? await createAccount(formData) : await login(formData);
       await setSession(user);
-      showToast(authMode === "signup" ? "Account created and projects seeded." : "Logged in.");
+      showToast(authMode === "signup" ? "Account created." : "Logged in.");
     } catch (error) { showToast(error.message); }
   });
 
@@ -1103,7 +1044,7 @@ function wireInteractions() {
   $("#newProjectBtnSecondary").addEventListener("click", () => $("#projectModal").showModal());
   $("#logoutBtn").addEventListener("click", async () => {
     await saveCurrentProject("Saved before logout");
-    localStorage.removeItem(SESSION_KEY);
+    try { await window.DD.api.auth.logout(); } catch { /* clear locally regardless */ }
     currentUser = null; currentProject = null; projects = [];
     // Stop Google from silently re-selecting the same account on the auth screen.
     if (googleReady()) { try { window.google.accounts.id.disableAutoSelect(); } catch { /* ignore */ } }
@@ -1133,15 +1074,17 @@ function wireInteractions() {
     const data = new FormData(form);
     const dealType = data.get("dealType");
     const typeMap = { VC: "Venture Capital", PE: "Private Equity", "M&A": "M&A" };
-    const project = newProjectRecord({
+    const draft = newProjectRecord({
       company: data.get("company"), industry: data.get("industry"), type: typeMap[dealType] || dealType,
       team: data.get("team"), value: data.get("value"), close: data.get("close")
     }, currentUser.id, { dealType });
-    await window.DD.store.put("projects", project);
-    await loadProjects(project.id);
-    $("#projectModal").close(); form.reset();
-    renderProjectSurfaces(); showPage("data-room");
-    showToast("Project created. Data Room ready — upload documents to begin.");
+    try {
+      const { project } = await window.DD.api.projects.create(draft);
+      await loadProjects(project.id);
+      $("#projectModal").close(); form.reset();
+      renderProjectSurfaces(); showPage("data-room");
+      showToast("Project created. Data Room ready — upload documents to begin.");
+    } catch (error) { showToast(`Could not create project: ${error.message}`); }
   });
 
   // ---- Data Room upload ----
@@ -1216,41 +1159,29 @@ function wireInteractions() {
   $("#llmProvider").addEventListener("change", (e) => { const cfg = window.DD.llm.getConfig(); $("#llmModel").value = e.target.value === "openai" ? cfg.openaiModel : cfg.claudeModel; });
   $("#saveLlmConfig").addEventListener("click", () => {
     const provider = $("#llmProvider").value;
-    const patch = { provider, apiKey: $("#llmApiKey").value.trim() };
+    const patch = { provider };
     if (provider === "openai") patch.openaiModel = $("#llmModel").value.trim() || "gpt-4o";
     else patch.claudeModel = $("#llmModel").value.trim() || "claude-opus-4-8";
     window.DD.llm.setConfig(patch);
     renderSettings(); if (currentProject) renderAnalysis(); refreshIcons();
-    showToast(patch.apiKey ? "AI engine configured — orchestrator will use the live model." : "Key cleared — orchestrator uses the heuristic engine.");
+    showToast("Provider preference saved. The model key is managed on the server.");
   });
 
   $("#testLlmConfig").addEventListener("click", async () => {
     const btn = $("#testLlmConfig");
     const result = $("#llmTestResult");
-    const provider = $("#llmProvider").value;
-    const apiKey = $("#llmApiKey").value.trim();
-    if (!apiKey) {
-      result.hidden = false;
-      result.className = "llm-test-result error";
-      result.textContent = "Enter an API key first, then test.";
-      return;
-    }
-    // Test the values currently in the form (may differ from what's saved).
-    const override = { provider, apiKey };
-    if (provider === "openai") override.openaiModel = $("#llmModel").value.trim() || "gpt-4o";
-    else override.claudeModel = $("#llmModel").value.trim() || "claude-opus-4-8";
-
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i data-lucide="loader"></i>Testing…';
     refreshIcons();
     result.hidden = false;
     result.className = "llm-test-result pending";
-    result.textContent = "Contacting the provider…";
+    result.textContent = "Asking the server to reach the model…";
     try {
-      const res = await window.DD.llm.testConnection(override);
+      const res = await window.DD.llm.testConnection();
       result.className = `llm-test-result ${res.ok ? "success" : "error"}`;
       result.textContent = `${res.ok ? "✓ " : "✕ "}${res.message}`;
+      renderSettings();
     } catch (err) {
       result.className = "llm-test-result error";
       result.textContent = `✕ Test failed: ${err.message}`;
@@ -1264,7 +1195,7 @@ function wireInteractions() {
   $("#clearAllProjects").addEventListener("click", async () => {
     if (!projects.length) { showToast("No projects to delete."); return; }
     if (!window.confirm(`Delete all ${projects.length} project(s)? This cannot be undone.`)) return;
-    await Promise.all(projects.map((p) => window.DD.store.del("projects", p.id)));
+    await Promise.all(projects.map((p) => window.DD.api.projects.del(p.id).catch(() => {})));
     projects = []; currentProject = null;
     renderProjectSurfaces();
     showPage("dashboard");
@@ -1275,8 +1206,6 @@ function wireInteractions() {
 }
 
 async function init() {
-  if (!("indexedDB" in window)) { showToast("This browser does not support IndexedDB."); return; }
-  await window.DD.db.open();
   initNav();
   wireInteractions();
   setAuthMode("login");
@@ -1287,4 +1216,4 @@ async function init() {
   refreshIcons();
 }
 
-init().catch((error) => { console.error(error); showToast("Could not initialize the local database."); });
+init().catch((error) => { console.error(error); showToast("Could not start the app."); });

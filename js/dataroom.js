@@ -50,8 +50,25 @@
       }
     };
 
-    // persist the raw blob + full text separately (keeps the project record small)
-    await DD.store.put("docblobs", { id, blob: file, fullText: extracted.fullText || "", uploadedAt: record.uploadedAt });
+    // Persist the raw file + extracted text to R2 via the API (keeps the project
+    // JSON small and puts confidential bytes in server storage, not the browser).
+    // Duplicates reuse the original's bytes, so they don't need re-uploading.
+    if (!duplicate && project.id) {
+      try {
+        const fd = new FormData();
+        fd.append("file", file, file.name);
+        fd.append("name", file.name);
+        fd.append("category", category);
+        fd.append("docType", docType);
+        fd.append("contentHash", hash);
+        fd.append("text", extracted.fullText || "");
+        const { document } = await DD.api.documents.upload(project.id, fd);
+        record.serverId = document.id;
+      } catch (error) {
+        record.uploadError = error.message;
+        console.warn(`Document upload failed for ${file.name}:`, error.message);
+      }
+    }
     if (onProgress) onProgress({ id, name: file.name, stage: "done", pct: 100, record });
     return record;
   }
