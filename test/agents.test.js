@@ -5,6 +5,7 @@ beforeAll(async () => {
   await import("../public/js/store.js");
   await import("../public/js/classify.js");
   await import("../public/js/heuristics.js");
+  await import("../public/js/llm.js");
   await import("../public/js/agents.js");
 });
 
@@ -38,44 +39,26 @@ describe("addFinding", () => {
   });
 });
 
-describe("heuristicRecommendation", () => {
-  it("recommends Do Not Invest when there are multiple critical/high risks", () => {
-    const project = baseProject({
-      documents: [{ category: "Financial" }, { category: "Legal" }, { category: "Commercial" }],
-      riskRegister: { risks: [{ severity: "Critical" }, { severity: "High" }, { severity: "High" }] }
-    });
-    const rec = window.DD.agents.heuristicRecommendation(project);
-    expect(rec.decision).toBe("Do Not Invest");
-  });
+// Note: heuristicRecommendation was intentionally removed — the app requires a
+// configured OpenAI key for every decision-making agent and no longer has any
+// deterministic substitute for the recommendation itself (see agents.js header).
 
-  it("recommends Continue Due Diligence when document coverage is thin, regardless of risk", () => {
-    const project = baseProject({ documents: [], riskRegister: { risks: [] } });
-    const rec = window.DD.agents.heuristicRecommendation(project);
-    expect(rec.decision).toBe("Continue Due Diligence");
-  });
-
-  it("recommends Invest when risk is clean and coverage is adequate", () => {
-    const project = baseProject({
-      documents: [{ category: "Financial" }, { category: "Legal" }, { category: "Commercial" }, { category: "Operational" }],
-      riskRegister: { risks: [{ severity: "Low" }] }
-    });
-    const rec = window.DD.agents.heuristicRecommendation(project);
-    expect(rec.decision).toBe("Invest");
-  });
-
-  it("rationale text never mentions 'evidence' — the evidence-sufficiency gate was removed", () => {
-    const project = baseProject({ documents: [], riskRegister: { risks: [] } });
-    const rec = window.DD.agents.heuristicRecommendation(project);
-    expect(rec.rationale.toLowerCase()).not.toContain("evidence");
+describe("run() with no AI key configured", () => {
+  it("rejects with a clear error instead of silently falling back to anything", async () => {
+    // js/llm.js defaults to unconfigured until refreshStatus() is called against
+    // a real server, which never happens in this test — isConfigured() is false.
+    expect(window.DD.llm.isConfigured()).toBe(false);
+    const project = baseProject();
+    await expect(window.DD.agents.run(project, "research-agent")).rejects.toThrow(/requires an AI key/i);
   });
 });
 
-describe("heuristicCrossValidation", () => {
+describe("deterministicCrossChecks", () => {
   it("flags duplicate documents as a Low-severity contradiction", () => {
     const project = baseProject({
       documents: [{ name: "msa.pdf", duplicateOf: null }, { name: "msa (copy).pdf", duplicateOf: "id-1" }]
     });
-    const result = window.DD.agents.heuristicCrossValidation(project);
+    const result = window.DD.agents.deterministicCrossChecks(project);
     expect(result.contradictions.some((c) => c.topic === "Duplicate documents")).toBe(true);
   });
 
@@ -84,13 +67,13 @@ describe("heuristicCrossValidation", () => {
       findings: { Financial: [{ title: "x", summary: "Management reports strong 90% growth this year." }] },
       financial: { parsed: { revenue: [100, 105] } } // computed growth ~5%, claimed 90% -> mismatch
     });
-    const result = window.DD.agents.heuristicCrossValidation(project);
+    const result = window.DD.agents.deterministicCrossChecks(project);
     expect(result.contradictions.some((c) => c.topic === "Revenue growth rate")).toBe(true);
   });
 
   it("returns no contradictions for a clean, consistent project", () => {
     const project = baseProject({ documents: [], findings: {} });
-    const result = window.DD.agents.heuristicCrossValidation(project);
+    const result = window.DD.agents.deterministicCrossChecks(project);
     expect(result.contradictions).toEqual([]);
   });
 });

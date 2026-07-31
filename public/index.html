@@ -315,10 +315,9 @@
           <div class="page-head"><div><span class="eyebrow">Workspace</span><h1>Settings</h1></div></div>
           <div class="settings-grid">
             <article class="panel">
-              <div class="panel-head"><div><span class="eyebrow">AI Engine</span><h2>Model provider</h2></div><span class="status-badge info" id="llmStatus">Not configured</span></div>
-              <p class="muted">Agents run on an existing model (Claude or ChatGPT) specialized via prompts. The model API key is held securely on the server — never in your browser. Choose your preferred provider/model below; if the server has no key, the deterministic engine runs. Analysis is rate-limited per user.</p>
-              <label class="field"><span>Preferred provider</span><select id="llmProvider"><option value="claude">Anthropic Claude</option><option value="openai">OpenAI ChatGPT</option></select></label>
-              <label class="field"><span>Preferred model</span><input id="llmModel" placeholder="claude-opus-4-8" /></label>
+              <div class="panel-head"><div><span class="eyebrow">AI Engine</span><h2>OpenAI</h2></div><span class="status-badge info" id="llmStatus">Not configured</span></div>
+              <p class="muted">Every agent runs on OpenAI, specialized via prompts. The API key is held securely on the server — never in your browser or client-side storage. Analysis requires this key to be configured; there is no offline/fallback mode. Analysis is rate-limited per user.</p>
+              <label class="field"><span>Model</span><input id="llmModel" placeholder="gpt-4o" /></label>
               <div class="button-row">
                 <button class="primary-button" id="saveLlmConfig"><i data-lucide="save"></i>Save preference</button>
                 <button class="secondary-button" id="testLlmConfig" type="button"><i data-lucide="plug-zap"></i>Test connection</button>

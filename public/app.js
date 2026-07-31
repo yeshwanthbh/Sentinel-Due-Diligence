@@ -272,8 +272,8 @@ function countFindings(project, predicate) {
 function renderHealthPill() {
   const pill = $("#dashboardHealthPill");
   const aiConfigured = window.DD.llm.isConfigured();
-  pill.className = `health-pill ${aiConfigured ? "" : "info"}`.trim();
-  pill.innerHTML = `<span></span>${aiConfigured ? "Live AI engine configured" : "Heuristic engine only — no AI key configured"}`;
+  pill.className = `health-pill ${aiConfigured ? "" : "danger"}`.trim();
+  pill.innerHTML = `<span></span>${aiConfigured ? "OpenAI configured" : "No AI key configured — analysis unavailable"}`;
 }
 
 function renderDashboard() {
@@ -429,45 +429,26 @@ function renderAnalysis() {
   if (!currentProject) return;
   const runs = currentProject.agentRuns || {};
   const allRun = runs.__orchestrator;
-  // Badge reflects the engine that actually produced this analysis, not just whether a key exists.
-  let badge = window.DD.llm.isConfigured() ? `${window.DD.llm.getConfig().provider === "openai" ? "OpenAI" : "Claude"}` : "Heuristic engine";
-  let badgeClass = "info";
-  if (allRun) {
-    if (allRun.silentFallback) { badge = "Heuristic (model unreachable)"; badgeClass = "warning"; }
-    else if (allRun.source === "model") { badge = "Live model"; badgeClass = "success"; }
-    else if (allRun.source === "mixed") { badge = `Mixed (${allRun.modelRuns}/${allRun.modelable} live)`; badgeClass = "warning"; }
-    else { badge = "Heuristic engine"; badgeClass = "info"; }
-  }
-  $("#analysisProviderBadge").textContent = badge;
-  $("#analysisProviderBadge").className = `status-badge ${badgeClass}`;
+  const ready = window.DD.llm.isConfigured();
+  $("#analysisProviderBadge").textContent = ready ? "OpenAI" : "Not configured";
+  $("#analysisProviderBadge").className = `status-badge ${ready ? "success" : "danger"}`;
 
   const agents = Object.entries(window.DD.agents.REGISTRY);
   const progress = agents.map(([key, a]) => {
-    const runInfo = runs[key];
-    const done = Boolean(runInfo);
-    const isModel = runInfo && runInfo.source === "model";
-    const tag = !done ? "" : isModel ? " · model" : " · heuristic";
-    const tagClass = isModel ? "success" : "info";
+    const done = Boolean(runs[key]);
     return `<div class="agent-run-item">
-      <div class="agent-run-top"><strong>${escapeHtml(a.name)}</strong><span class="status-badge ${done ? tagClass : "info"}">${done ? `✓${tag}` : "—"}</span></div>
+      <div class="agent-run-top"><strong>${escapeHtml(a.name)}</strong><span class="status-badge ${done ? "success" : "info"}">${done ? "✓" : "—"}</span></div>
       <div class="progress-track"><span style="width:${done ? 100 : 0}%"></span></div>
     </div>`;
   }).join("");
 
   let summary;
   if (!allRun) {
-    summary = `<p>Run the analysis to orchestrate all ${agents.length} specialist agents through your documents.</p>`;
-  } else if (allRun.silentFallback) {
-    const errLine = allRun.modelError
-      ? `<br><span class="inline-error">API error: ${escapeHtml(allRun.modelError)}</span>`
-      : "";
-    summary = `<p><strong>Analysis complete — heuristic engine.</strong> An API key is configured but the live model did not respond for any agent, so deterministic fallbacks were used.${errLine}</p><p class="muted">Note: the analysis call adds a JSON-response requirement and larger payload the connection test doesn't, so a passing test can still fail here. The error above is the actual cause — re-run after resolving it.</p>`;
-  } else if (allRun.source === "mixed") {
-    summary = `<p><strong>Analysis complete — mixed.</strong> ${allRun.modelRuns} of ${allRun.modelable} agents used the live model; the rest fell back to heuristics.</p>`;
-  } else if (allRun.source === "model") {
-    summary = `<p><strong>Analysis complete — live model.</strong> All ${allRun.modelable} model-driven agents ran on ${escapeHtml(window.DD.llm.getConfig().provider === "openai" ? "OpenAI" : "Claude")}.</p>`;
+    summary = ready
+      ? `<p>Run the analysis to orchestrate all ${agents.length} specialist agents through your documents.</p>`
+      : `<p class="inline-error">No OpenAI key is configured on the server — analysis cannot run until one is set (see Settings).</p>`;
   } else {
-    summary = `<p><strong>Analysis complete — heuristic engine.</strong> No API key configured; add one in Settings for AI-generated intelligence.</p>`;
+    summary = `<p><strong>Analysis complete.</strong> All ${agents.length} agents ran on OpenAI.</p>`;
   }
 
   $("#orchestratorProgress").innerHTML = `${summary}<div class="agent-run-list">${progress}</div>`;
@@ -519,6 +500,7 @@ async function runOrchestrator() {
   if (!requireProject()) return;
   if (orchestratorRunning) return;
   if (!currentProject.documents.length) { showToast("Upload documents first."); return; }
+  if (!window.DD.llm.isConfigured()) { showToast("No OpenAI key configured on the server — analysis can't run. See Settings."); return; }
   const total = Object.keys(window.DD.agents.REGISTRY).length;
   orchestratorRunning = true;
   showToast("Starting diligence analysis orchestrator…");
@@ -536,44 +518,19 @@ async function runOrchestrator() {
   };
 
   try {
-    const results = await window.DD.agents.runAll(currentProject, onStep);
+    await window.DD.agents.runAll(currentProject, onStep);
     // Show the completed 100% state briefly before the final summary replaces it.
     renderOrchestratorLive(total, total, "");
     setMemoProgress({ pct: 100, label: "Memo ready", sub: "Analysis complete." });
     await paintYield(300);
-    // Derive the true engine from what the agents ACTUALLY did, not from whether a
-    // key merely exists. Agents fall back to heuristics silently when a model call
-    // fails (bad key, CORS, quota), so trust the recorded per-agent source instead.
-    const modelable = results;
-    const modelRuns = modelable.filter((r) => r.source === "model").length;
-    const keyConfigured = window.DD.llm.isConfigured();
-    // Capture the first real API error so we can tell the user WHY agents fell back,
-    // instead of a mysterious "heuristic engine" with no explanation.
-    const firstError = (modelable.find((r) => r.modelError) || {}).modelError || null;
-    let source;
-    if (modelRuns === modelable.length && modelRuns > 0) source = "model";
-    else if (modelRuns === 0) source = "heuristic";
-    else source = "mixed";
-    currentProject.agentRuns.__orchestrator = {
-      at: new Date().toISOString(), source,
-      modelRuns, modelable: modelable.length,
-      // Flag the deceptive case: a key is set but the live model never actually ran.
-      keyConfigured, silentFallback: keyConfigured && modelRuns === 0,
-      modelError: firstError
-    };
+    currentProject.agentRuns.__orchestrator = { at: new Date().toISOString() };
     currentProject.progress = 96;
     currentProject.status = "IC Memo";
     await saveCurrentProject("Orchestrator analysis complete");
     renderProjectSurfaces();
     // Leave "Memo ready" visible briefly, then fade the memo loading bar out.
     window.setTimeout(() => setMemoProgress({ show: false }), 1200);
-    if (keyConfigured && modelRuns === 0) {
-      showToast("Analysis ran on the heuristic engine — the live model never responded. Check Settings → Test connection.");
-    } else if (source === "mixed") {
-      showToast(`Analysis complete. ${modelRuns} of ${modelable.length} agents used the live model; the rest used heuristics.`);
-    } else {
-      showToast("Analysis complete. Review findings, risks, and memo.");
-    }
+    showToast("Analysis complete. Review findings, risks, and memo.");
   } catch (error) {
     console.error(error);
     setMemoProgress({ show: false });
@@ -614,7 +571,7 @@ async function rebuildRiskRegister() {
 function renderFinancial() {
   const fin = currentProject.financial;
   $("#financialStatementInput").value = currentProject.financialInput || "";
-  $("#financialSourceBadge").textContent = fin ? `${fin.source} engine` : "No data";
+  $("#financialSourceBadge").textContent = fin ? "AI-generated" : "No data";
   $("#financialChecklist").innerHTML = ["Revenue", "Margins", "Working capital", "Debt & leverage", "Cash flow", "Valuation support", "Anomaly detection"]
     .map((w) => `<label class="check-row"><span class="check-dot ${fin ? "on" : ""}"></span>${w}</label>`).join("");
 
@@ -641,7 +598,7 @@ function renderResearch() {
   if (!r) { $("#researchGrid").innerHTML = `<p class="muted">Run the analysis to gather company overview, competitors, executives, news, patents, filings, and market data.</p>`; return; }
   const list = (title, items, render) => `<article class="panel"><div class="panel-head"><div><span class="eyebrow">${title}</span></div></div>${items && items.length ? items.map(render).join("") : `<p class="muted">None found.</p>`}</article>`;
   $("#researchGrid").innerHTML = `
-    <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Overview</span><h2>${escapeHtml(currentProject.name)}</h2></div><span class="status-badge info">${r.source} • ${escapeHtml(r.industry || "")}</span></div>
+    <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Overview</span><h2>${escapeHtml(currentProject.name)}</h2></div><span class="status-badge info">${escapeHtml(r.industry || "")}</span></div>
       <p>${escapeHtml(r.overview || "")}</p><p class="muted">${escapeHtml(r.businessModel || "")}</p></article>
     ${list("Competitors", r.competitors, (c) => `<div class="research-row"><strong>${escapeHtml(c.name)}</strong><span>${escapeHtml(c.note || "")}</span></div>`)}
     ${list("Executives", r.executives, (e) => `<div class="research-row"><strong>${escapeHtml(e.name)}</strong><span>${escapeHtml(e.role || "")}</span></div>`)}
@@ -704,7 +661,7 @@ function renderFindings() {
 /* ---- Risks / Memo / Reports ---- */
 function renderRisks() {
   const reg = currentProject.riskRegister;
-  $("#riskProfile").innerHTML = reg ? `<p><strong>Overall profile:</strong> ${escapeHtml(reg.overallProfile || "")} <span class="muted">(${reg.source} engine)</span></p>` : `<p class="muted">Run the Risk Assessment Agent to build the register.</p>`;
+  $("#riskProfile").innerHTML = reg ? `<p><strong>Overall profile:</strong> ${escapeHtml(reg.overallProfile || "")}</p>` : `<p class="muted">Run the Risk Assessment Agent to build the register.</p>`;
   const grouped = currentProject.risks && Object.keys(currentProject.risks).length ? currentProject.risks : { Critical: [], High: [], Medium: [], Low: [] };
   $("#riskColumns").innerHTML = ["Critical", "High", "Medium", "Low"].map((severity) => `
     <section class="risk-column">
@@ -723,7 +680,7 @@ function renderMemo() {
   const rec = currentProject.recommendation;
   $("#recommendationBanner").innerHTML = rec ? `
     <div class="rec-pill rec-${rec.decision.replace(/\s+/g, "-").toLowerCase()}">
-      <div><span class="eyebrow">Recommendation (${rec.source} engine)</span><strong>${escapeHtml(rec.decision)}</strong></div>
+      <div><span class="eyebrow">Recommendation</span><strong>${escapeHtml(rec.decision)}</strong></div>
       <div class="rec-meta"><span>${rec.confidence}% confidence</span>${rec.learning ? `<span>📈 Informed by ${rec.learning.comparables} comparable past deal(s)</span>` : ""}<span>${escapeHtml(rec.rationale || "")}</span></div>
     </div>
     <p class="disclaimer-note"><i data-lucide="alert-triangle"></i>AI-generated, not investment advice. A qualified human must independently verify this analysis before any capital is committed.</p>` : `<p class="muted">Run the Recommendation Agent to generate a decision.</p>`;
@@ -745,11 +702,10 @@ function renderReports() {
 
 function renderSettings() {
   const cfg = window.DD.llm.getConfig();
-  $("#llmProvider").value = cfg.provider;
-  $("#llmModel").value = cfg.provider === "openai" ? cfg.openaiModel : cfg.claudeModel;
+  $("#llmModel").value = cfg.model;
   const ready = window.DD.llm.isConfigured();
-  $("#llmStatus").textContent = ready ? "Server AI ready" : "Heuristic engine (no server key)";
-  $("#llmStatus").className = `status-badge ${ready ? "success" : "info"}`;
+  $("#llmStatus").textContent = ready ? "Server AI ready" : "Not configured — analysis will fail";
+  $("#llmStatus").className = `status-badge ${ready ? "success" : "danger"}`;
 }
 
 /* ---- Deal Intelligence / Post-Deal Learning ---- */
@@ -1134,15 +1090,10 @@ function wireInteractions() {
   $("#memoBody").addEventListener("input", (e) => { if (!currentProject) return; currentProject.memoHtml = window.DD.util.sanitizeMemoHtml(e.currentTarget.innerHTML); scheduleSave("Memo edited"); });
 
   // ---- Settings ----
-  $("#llmProvider").addEventListener("change", (e) => { const cfg = window.DD.llm.getConfig(); $("#llmModel").value = e.target.value === "openai" ? cfg.openaiModel : cfg.claudeModel; });
   $("#saveLlmConfig").addEventListener("click", () => {
-    const provider = $("#llmProvider").value;
-    const patch = { provider };
-    if (provider === "openai") patch.openaiModel = $("#llmModel").value.trim() || "gpt-4o";
-    else patch.claudeModel = $("#llmModel").value.trim() || "claude-opus-4-8";
-    window.DD.llm.setConfig(patch);
+    window.DD.llm.setConfig({ model: $("#llmModel").value.trim() || "gpt-4o" });
     renderSettings(); if (currentProject) renderAnalysis(); refreshIcons();
-    showToast("Provider preference saved. The model key is managed on the server.");
+    showToast("Model preference saved. The API key is managed on the server.");
   });
 
   $("#testLlmConfig").addEventListener("click", async () => {

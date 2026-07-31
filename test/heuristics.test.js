@@ -78,17 +78,6 @@ describe("financialAnomalies", () => {
   });
 });
 
-describe("severityConfidence", () => {
-  it("is monotonically higher for higher severities at equal match strength", () => {
-    const low = window.DD.heuristics.severityConfidence("Low", 1);
-    const medium = window.DD.heuristics.severityConfidence("Medium", 1);
-    const high = window.DD.heuristics.severityConfidence("High", 1);
-    expect(high).toBeGreaterThan(medium);
-    expect(medium).toBeGreaterThan(low);
-  });
-
-  it("increases with match strength but caps at 97", () => {
-    expect(window.DD.heuristics.severityConfidence("High", 0)).toBeLessThan(window.DD.heuristics.severityConfidence("High", 5));
-    expect(window.DD.heuristics.severityConfidence("High", 100)).toBeLessThanOrEqual(97);
-  });
-});
+// Note: severityConfidence and the SIGNALS keyword library were removed along
+// with heuristicDocumentFindings — the app no longer has a keyword-based
+// substitute for document-agent findings (see agents.js header).

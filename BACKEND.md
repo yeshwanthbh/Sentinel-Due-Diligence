@@ -39,8 +39,9 @@ npx wrangler r2 bucket create sentinel-dd-docs
 npx wrangler d1 execute sentinel-dd --local  --file=./schema.sql
 npx wrangler d1 execute sentinel-dd --remote --file=./schema.sql
 
-# 5. LLM keys become server secrets (never shipped to the browser) — used by a later phase
-npx wrangler secret put ANTHROPIC_API_KEY
+# 5. The OpenAI key becomes a server secret (never shipped to the browser).
+#    OpenAI is the sole provider — there is no fallback engine and no
+#    provider choice; analysis requires this to be set.
 npx wrangler secret put OPENAI_API_KEY
 ```
 
@@ -85,7 +86,7 @@ npx wrangler deploy
 | DELETE | `/api/outcomes/:id` | — | delete own contribution |
 | POST | `/api/outcomes/similar` | `{industry,dealType,value,riskCounts}` | comparable deals, **anonymized cross-tenant** |
 | GET  | `/api/outcomes/stats` | — | learning-bank aggregates |
-| POST | `/api/llm` | `{system,user,provider?,model?}` | model proxy; key is a server secret; metered per user/day |
+| POST | `/api/llm` | `{system,user,model?}` | OpenAI proxy (sole provider); key is a server secret; metered per user/day |
 
 All non-auth routes require a valid session. Verified end-to-end against a local
 D1+R2 via `wrangler dev` — including 401/404/409 paths and a planted-secret test

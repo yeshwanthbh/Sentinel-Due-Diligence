@@ -5,7 +5,7 @@
 	//   npx wrangler d1 create sentinel-dd     -> paste the returned database_id below
 	//   npx wrangler r2 bucket create sentinel-dd-docs
 	//   npx wrangler d1 execute sentinel-dd --remote --file=./schema.sql
-	//   npx wrangler secret put ANTHROPIC_API_KEY   (and/or OPENAI_API_KEY)
+	//   npx wrangler secret put OPENAI_API_KEY   (sole provider — analysis requires this)
 	//
 	// The frontend lives in ./public, served via the ASSETS binding; the Worker
 	// source in ./worker is never served as a public asset.

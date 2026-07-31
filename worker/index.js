@@ -604,27 +604,25 @@ function safeParse(text) { try { return JSON.parse(text); } catch { return {}; }
 
 /* ----------------------------------------------------------- LLM proxy */
 // The model API key lives ONLY here as a Worker secret — never shipped to the
-// browser (fixes the prototype's client-side key). Every call is authenticated
-// and metered per user/day so a leaked session can't run up an unbounded bill.
+// browser. Every call is authenticated and metered per user/day so a leaked
+// session can't run up an unbounded bill. OpenAI is the sole provider — there
+// is no fallback engine and no provider choice; if OPENAI_API_KEY isn't set,
+// analysis simply cannot run (by design — see public/js/agents.js header).
 const LLM_DAILY_LIMIT = 200;
 
 // Lets the frontend know whether the server has an AI key, without exposing it.
 async function llmStatus(request, env) {
   await requireUser(request, env);
-  const provider = (env.DEFAULT_LLM_PROVIDER || "claude").toLowerCase();
-  const configured = Boolean(provider === "openai" ? env.OPENAI_API_KEY : env.ANTHROPIC_API_KEY)
-    || Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY);
-  return json({ configured, provider, dailyLimit: LLM_DAILY_LIMIT });
+  return json({ configured: Boolean(env.OPENAI_API_KEY), dailyLimit: LLM_DAILY_LIMIT });
 }
 
 async function llmProxy(request, env) {
   const user = await requireUser(request, env);
-  const { system, user: userMsg, provider: reqProvider, model: reqModel, maxTokens } = await readJson(request);
+  const { system, user: userMsg, model: reqModel } = await readJson(request);
   if (!system || !userMsg) return json({ error: "system and user are required." }, 400);
 
-  const provider = (reqProvider || env.DEFAULT_LLM_PROVIDER || "claude").toLowerCase();
-  const key = provider === "openai" ? env.OPENAI_API_KEY : env.ANTHROPIC_API_KEY;
-  if (!key) return json({ error: `Server has no ${provider} key configured.` }, 503);
+  const key = env.OPENAI_API_KEY;
+  if (!key) return json({ error: "Server has no OpenAI key configured." }, 503);
 
   // ---- per-user daily rate limit ----
   const day = new Date().toISOString().slice(0, 10);
@@ -635,10 +633,7 @@ async function llmProxy(request, env) {
 
   let text, tokensIn, tokensOut;
   try {
-    const result = provider === "openai"
-      ? await callOpenAI(system, userMsg, key, reqModel || "gpt-4o")
-      : await callClaude(system, userMsg, key, reqModel || "claude-opus-4-8", maxTokens || 2000);
-    ({ text, tokensIn, tokensOut } = result);
+    ({ text, tokensIn, tokensOut } = await callOpenAI(system, userMsg, key, reqModel || "gpt-4o"));
   } catch (err) {
     return json({ error: err.message }, 502);
   }
@@ -667,18 +662,6 @@ async function fetchWithTimeout(url, options, timeoutMs = 75_000) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function callClaude(system, user, apiKey, model, maxTokens) {
-  const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] })
-  });
-  if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  const text = (data.content || []).map((b) => b.text || "").join("");
-  return { text, tokensIn: data.usage?.input_tokens || 0, tokensOut: data.usage?.output_tokens || 0 };
 }
 
 async function callOpenAI(system, user, apiKey, model) {

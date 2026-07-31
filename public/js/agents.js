@@ -1,6 +1,11 @@
 /* Sentinel DD — AI agent orchestration (Phases 5-13)
- * Each agent is the SAME underlying model (Claude/OpenAI) specialized by its system prompt.
- * With an API key the engine calls the LLM; without one it uses the deterministic engine. */
+ * Every agent is a specialized prompt against the SAME model (OpenAI). There is
+ * no deterministic fallback engine: if no key is configured, or the model call
+ * fails, the agent throws — analysis stops with a clear error rather than
+ * silently substituting fabricated results. The only exceptions are genuine
+ * deterministic math/checks (financial statement parsing, duplicate-document
+ * detection, growth-rate reconciliation) that supplement the model's output
+ * rather than standing in for it. */
 (function () {
   const DD = (window.DD = window.DD || {});
   const { cryptoId, clone } = DD.util;
@@ -162,10 +167,16 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
   }
 
   // ================= RUN ENGINE =================
+  // Requires the model. Throws (does not fall back to any substitute) if no key
+  // is configured or the model call fails — callers (runAll/runOrchestrator)
+  // surface that as a clear "Analysis failed: ..." error.
   async function run(project, agentKey) {
     ensure(project);
     const agent = REGISTRY[agentKey];
     if (!agent) throw new Error(`Unknown agent ${agentKey}`);
+    if (!DD.llm.isConfigured()) {
+      throw new Error(`${agent.name} requires an AI key, but the server has none configured.`);
+    }
     const context = buildContext(project, agent);
     // Proprietary learning: enrich decision-oriented agents with anonymized
     // outcomes of comparable past deals. Best-effort — never blocks analysis.
@@ -179,108 +190,77 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
         }
       } catch (error) { console.warn("Learning context unavailable:", error.message); }
     }
-    let source = "heuristic";
-    let output = null;
-    let modelError = null;
-    if (DD.llm.isConfigured()) {
-      try {
-        output = await DD.llm.runJSON(agent.system, JSON.stringify(context));
-        source = "model";
-      } catch (error) {
-        if (error.message !== "NO_KEY") {
-          modelError = error.message;
-          console.warn(`${agent.name} model call failed, using heuristics:`, error.message);
-        }
-      }
-    }
-    const applied = HANDLERS[agent.kind](project, agent, output, source, learning);
-    project.agentRuns[agentKey] = { at: new Date().toISOString(), source, name: agent.name, kind: agent.kind, modelError };
-    return { agent: agent.name, key: agentKey, kind: agent.kind, source, modelError, ...applied };
+    const output = await DD.llm.runJSON(agent.system, JSON.stringify(context));
+    const applied = HANDLERS[agent.kind](project, agent, output, learning);
+    project.agentRuns[agentKey] = { at: new Date().toISOString(), name: agent.name, kind: agent.kind };
+    return { agent: agent.name, key: agentKey, kind: agent.kind, ...applied };
   }
 
   // ---------- per-kind handlers ----------
+  // `output` is always the model's parsed JSON response here (run() throws
+  // before reaching HANDLERS if there's no model output to hand it).
   const HANDLERS = {
-    research(project, agent, output, source) {
-      if (output && source === "model") {
-        project.research = { ...output, source, generatedAt: new Date().toISOString() };
-      } else {
-        project.research = heuristicResearch(project);
-      }
-      // Only register a competitive-pressure finding from genuine model intelligence.
-      // The heuristic path returns a placeholder competitor ("Peer set not resolved");
-      // turning that into a counted finding would fabricate diligence output.
-      if (source === "model") {
-        (project.research.competitors || []).slice(0, 1).forEach((c) => {
-          if (!c.name || /not resolved|unknown/i.test(c.name)) return;
-          addFinding(project, "External Research", {
-            title: "Competitive pressure identified", severity: "Low",
-            summary: `External signals note ${c.name} as a competitor. ${c.note || ""}`.trim(),
-            confidence: 66, agent: agent.name
-          });
+    research(project, agent, output) {
+      project.research = { ...output, generatedAt: new Date().toISOString() };
+      (project.research.competitors || []).slice(0, 1).forEach((c) => {
+        if (!c.name || /not resolved|unknown/i.test(c.name)) return;
+        addFinding(project, "External Research", {
+          title: "Competitive pressure identified", severity: "Low",
+          summary: `External signals note ${c.name} as a competitor. ${c.note || ""}`.trim(),
+          confidence: 66, agent: agent.name
         });
-      }
+      });
       return { research: project.research };
     },
 
-    financial(project, agent, output, source) {
+    financial(project, agent, output) {
       const input = project.financialInput || financialTextFromDocs(project);
       const parsed = H().parseFinancials(input);
-      const metrics = (source === "model" && output?.metrics?.length) ? output.metrics : H().computeFinancialMetrics(parsed);
-      const anomalies = (source === "model" && output?.anomalies) ? output.anomalies : H().financialAnomalies(parsed);
-      project.financial = { parsed, metrics, anomalies, valuation: buildValuation(parsed), source, generatedAt: new Date().toISOString() };
+      // Deterministic math is the source of truth for metrics/anomalies; the
+      // model's numbers are used only if it didn't return its own.
+      const metrics = output?.metrics?.length ? output.metrics : H().computeFinancialMetrics(parsed);
+      const anomalies = output?.anomalies?.length ? output.anomalies : H().financialAnomalies(parsed);
+      project.financial = { parsed, metrics, anomalies, valuation: buildValuation(parsed), generatedAt: new Date().toISOString() };
 
-      const findingsSpec = (source === "model" && output?.findings?.length)
-        ? output.findings
-        : heuristicFinancialFindings(parsed, anomalies);
-      findingsSpec.forEach((spec) => {
+      (output?.findings || []).forEach((spec) => {
         addFinding(project, "Financial", { ...spec, agent: agent.name });
       });
-      return { metrics, findings: findingsSpec.length };
+      return { metrics, findings: (output?.findings || []).length };
     },
 
-    document(project, agent, output, source) {
+    document(project, agent, output) {
       let count = 0;
-      if (source === "model" && output?.findings?.length) {
-        output.findings.forEach((spec) => {
-          addFinding(project, agent.bucket, { ...spec, agent: agent.name });
-          count += 1;
-        });
-      } else {
-        count = heuristicDocumentFindings(project, agent);
-      }
+      (output?.findings || []).forEach((spec) => {
+        addFinding(project, agent.bucket, { ...spec, agent: agent.name });
+        count += 1;
+      });
       return { findings: count };
     },
 
-    cross(project, agent, output, source) {
-      // The heuristic pass (duplicate docs, growth-rate reconciliation) always runs —
-      // it's cheap and orthogonal to what a model would catch. When a model is
-      // configured and responds, its semantic contradiction-detection is layered on
-      // top rather than replacing the deterministic checks.
-      const heuristic = heuristicCrossValidation(project);
-      let contradictions = heuristic.contradictions;
-      if (source === "model" && output?.contradictions?.length) {
-        contradictions = [...output.contradictions, ...heuristic.contradictions];
-      }
-      if (source === "model" && output?.confidenceAdjustments?.length) {
+    cross(project, agent, output) {
+      // Deterministic checks (duplicate docs, growth-rate reconciliation) always
+      // run — they're cheap, exact, and orthogonal to what the model catches.
+      // The model's semantic contradiction-detection is layered on top.
+      const deterministic = deterministicCrossChecks(project);
+      const contradictions = [...(output?.contradictions || []), ...deterministic.contradictions];
+      if (output?.confidenceAdjustments?.length) {
         applyCrossValidationAdjustments(project, output.confidenceAdjustments);
       }
-      project.crossValidation = { contradictions, source, generatedAt: new Date().toISOString() };
+      project.crossValidation = { contradictions, generatedAt: new Date().toISOString() };
       return { contradictions: contradictions.length };
     },
 
-    risk(project, agent, output, source) {
-      const register = (source === "model" && output?.risks?.length)
-        ? { risks: output.risks, overallProfile: output.overallProfile }
-        : heuristicRiskRegister(project);
+    risk(project, agent, output) {
+      const register = { risks: output?.risks || [], overallProfile: output?.overallProfile || "" };
       register.risks.forEach((r) => { r.id = r.id || cryptoId(); });
-      project.riskRegister = { ...register, source, generatedAt: new Date().toISOString() };
+      project.riskRegister = { ...register, generatedAt: new Date().toISOString() };
       // keep legacy grouped structure in sync for the Risk Center view
       project.risks = groupRisks(register.risks);
       return { risks: register.risks.length };
     },
 
-    memo(project, agent, output, source) {
-      const sections = (source === "model" && output?.sections?.length) ? output.sections : heuristicMemoSections(project);
+    memo(project, agent, output) {
+      const sections = output?.sections || [];
       // Sanitize model-generated section HTML — it's built from untrusted uploaded-
       // document text and would otherwise be inserted via innerHTML verbatim.
       project.memoHtml = sections.map((s) => `<h2>${DD.util.escapeHtml(s.heading)}</h2>${DD.util.sanitizeMemoHtml(s.html)}`).join("\n");
@@ -288,19 +268,17 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       return { sections: sections.length };
     },
 
-    recommendation(project, agent, output, source, learning) {
-      const rec = (source === "model" && output?.decision)
-        ? output
-        : heuristicRecommendation(project);
-      // Overlay proprietary learning on BOTH paths so the decision reflects how
-      // comparable past deals actually turned out, consistently.
+    recommendation(project, agent, output, learning) {
+      const rec = { decision: output?.decision, confidence: output?.confidence, rationale: output?.rationale, conditions: output?.conditions || [], unresolved: output?.unresolved || [] };
+      // Overlay proprietary learning so the decision reflects how comparable past
+      // deals actually turned out.
       applyLearningToRecommendation(rec, learning && learning.signal);
-      project.recommendation = { ...rec, source, generatedAt: new Date().toISOString() };
+      project.recommendation = { ...rec, generatedAt: new Date().toISOString() };
       return { decision: project.recommendation.decision };
     }
   };
 
-  // ================= heuristic implementations =================
+  // ================= deterministic helpers (math/checks, not AI substitutes) =================
   function financialTextFromDocs(project) {
     const doc = project.documents.find((d) => d.category === "Financial" && (d.ext === "xlsx" || d.ext === "csv" || d.ext === "xls"));
     return doc ? (doc.textPreview || "") : "";
@@ -318,78 +296,6 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     return { basis: ebitda ? "EBITDA" : revenue ? "Revenue" : "Insufficient data", rows };
   }
 
-  function heuristicFinancialFindings(parsed, anomalies) {
-    const findings = anomalies.map((a) => ({
-      title: a.text.length > 60 ? `${a.text.slice(0, 57)}...` : a.text,
-      summary: a.text, severity: a.severity, confidence: 84
-    }));
-    const g = H().pctChange(parsed.revenue);
-    if (g != null && g > 0 && g < 20) {
-      findings.push({ title: "Revenue growth below plan threshold", summary: `Revenue grew ${g.toFixed(1)}% across the period — validate against the underwriting growth case.`, severity: "Medium", confidence: 80 });
-    }
-    if (!parsed.revenue) {
-      findings.push({ title: "Financial statement data not machine-readable", summary: "No parseable revenue line detected. Upload a structured CSV/XLSX financial model for automated metrics.", severity: "Medium", confidence: 70 });
-    } else {
-      // always leave a baseline, evidence-linked financial finding
-      const parts = [];
-      if (g != null) parts.push(`revenue ${g >= 0 ? "grew" : "declined"} ${Math.abs(g).toFixed(1)}%`);
-      const gm = parsed.grossProfit && parsed.revenue ? (parsed.grossProfit[parsed.grossProfit.length - 1] / parsed.revenue[parsed.revenue.length - 1]) * 100 : null;
-      if (gm != null) parts.push(`gross margin ${gm.toFixed(1)}%`);
-      findings.push({
-        title: "Financial performance summary",
-        summary: `Statement analysis: ${parts.join(", ") || "metrics computed"}. Metrics reconciled to source financial statements; verify against QoE adjustments.`,
-        severity: "Low", confidence: 82
-      });
-    }
-    return findings;
-  }
-
-  function heuristicDocumentFindings(project, agent) {
-    const signals = H().SIGNALS[agent.categories && agent.categories[0] === "Legal" ? "legal-agent"
-      : agent.categories && agent.categories[0] === "Commercial" ? "commercial-agent"
-      : "operational-agent"] || [];
-    const docs = docsForAgent(project, agent);
-    let count = 0;
-    signals.forEach((signal) => {
-      const matches = docs.filter((doc) => {
-        const text = `${doc.name}\n${doc.textPreview || ""}`.toLowerCase();
-        return signal.kw.some((k) => text.includes(k));
-      });
-      if (!matches.length) return;
-      const strength = matches.length;
-      addFinding(project, agent.bucket, {
-        title: signal.title, summary: signal.summary, severity: signal.severity,
-        confidence: H().severityConfidence(signal.severity, strength), agent: agent.name
-      });
-      count += 1;
-    });
-    if (!count && docs.length) {
-      addFinding(project, agent.bucket, {
-        title: `${agent.bucket} review — no material issues detected`,
-        summary: `Automated review of ${docs.length} document(s) surfaced no keyword-level red flags. Manual review recommended.`,
-        severity: "Low", confidence: 60, agent: agent.name
-      });
-      count += 1;
-    }
-    return count;
-  }
-
-  function heuristicResearch(project) {
-    return {
-      overview: `${project.name} operates in the ${project.industry} sector. Detailed external intelligence requires an LLM API key or connected research source; this is a heuristic placeholder derived from project metadata.`,
-      industry: project.industry,
-      businessModel: "Unknown — connect an LLM key to enrich.",
-      competitors: [{ name: "Peer set not resolved", note: "Add an API key to populate competitor intelligence." }],
-      executives: [],
-      news: [],
-      patents: [],
-      filings: [],
-      market: { size: "Unknown", growth: "Unknown", notes: "Connect research source to populate market sizing." },
-      citations: [{ claim: `${project.name} is in ${project.industry}`, source: "Project metadata", confidence: 60 }],
-      source: "heuristic", generatedAt: new Date().toISOString()
-    };
-  }
-
   // Applies the cross-validation model's semantic confidence adjustments (e.g. "this
   // finding contradicts another agent's figures") to the matching findings by title.
   function applyCrossValidationAdjustments(project, adjustments) {
@@ -403,7 +309,9 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     });
   }
 
-  function heuristicCrossValidation(project) {
+  // Exact, deterministic contradiction checks — not a substitute for the model's
+  // semantic review, just the things code can verify precisely.
+  function deterministicCrossChecks(project) {
     const contradictions = [];
     // 1) revenue growth: management claim vs computed
     const parsed = project.financial?.parsed;
@@ -434,26 +342,6 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     return { contradictions };
   }
 
-  function heuristicRiskRegister(project) {
-    const risks = [];
-    Object.entries(project.findings).forEach(([bucket, list]) => {
-      list.forEach((f) => {
-        if (/no material issues/i.test(f.title)) return;
-        let severity = f.severity === "High" ? "High" : f.severity === "Medium" ? "Medium" : "Low";
-        if (/concentration/i.test(f.title) && f.severity === "High") severity = "Critical";
-        risks.push({
-          id: cryptoId(), title: f.title, category: bucket, severity,
-          likelihood: f.severity === "High" ? "Medium" : f.severity === "Low" ? "Low" : "Medium",
-          impact: `${bucket} workstream impact`, confidence: f.confidence,
-          mitigation: "Assign owner; gather corroborating evidence before IC."
-        });
-      });
-    });
-    const counts = risks.reduce((acc, r) => { acc[r.severity] = (acc[r.severity] || 0) + 1; return acc; }, {});
-    const overallProfile = `${risks.length} tracked risks: ${counts.Critical || 0} critical, ${counts.High || 0} high, ${counts.Medium || 0} medium, ${counts.Low || 0} low. Overall posture: ${(counts.Critical || 0) + (counts.High || 0) >= 3 ? "Elevated" : (counts.Critical || counts.High) ? "Moderate" : "Contained"}.`;
-    return { risks, overallProfile };
-  }
-
   function groupRisks(risks) {
     const grouped = { Critical: [], High: [], Medium: [], Low: [] };
     risks.forEach((r) => {
@@ -462,52 +350,10 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     return grouped;
   }
 
-  function heuristicMemoSections(project) {
-    const esc = DD.util.escapeHtml;
-    const bucketHtml = (bucket) => {
-      const list = project.findings[bucket] || [];
-      if (!list.length) return `<p>No ${esc(bucket.toLowerCase())} findings generated yet.</p>`;
-      return `<ul>${list.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.summary)} <em>(${f.severity}, ${f.confidence}% confidence)</em></li>`).join("")}</ul>`;
-    };
-    const rec = project.recommendation;
-    const risks = project.riskRegister?.risks || [];
-    return [
-      { heading: "Executive Summary", html: `<p>${esc(project.name)} (${esc(project.industry)}, ${esc(project.type || project.workflow || "diligence")}) has been assessed across financial, legal, commercial, and operational workstreams. ${esc(project.riskRegister?.overallProfile || "Risk profile pending risk-agent run.")}</p>` },
-      { heading: "Investment Thesis", html: `<p>${esc(project.research?.overview || `${project.name} operates in ${project.industry}.`)}</p>` },
-      { heading: "Financial Analysis", html: `${(project.financial?.metrics || []).length ? `<p>Key metrics: ${project.financial.metrics.map((m) => `${esc(m.label)} ${esc(m.value)}`).join("; ")}.</p>` : ""}${bucketHtml("Financial")}` },
-      { heading: "Legal Analysis", html: bucketHtml("Legal") },
-      { heading: "Commercial Analysis", html: bucketHtml("Commercial") },
-      { heading: "Operational Analysis", html: bucketHtml("Operational") },
-      { heading: "Key Risks", html: risks.length ? `<ul>${risks.slice(0, 8).map((r) => `<li><strong>${esc(r.severity)}:</strong> ${esc(r.title)} — ${esc(r.mitigation || "")}</li>`).join("")}</ul>` : "<p>Run the Risk Assessment Agent to populate.</p>" },
-      { heading: "Recommendation", html: rec ? `<p><strong>${esc(rec.decision)}</strong> (${rec.confidence}% confidence). ${esc(rec.rationale || "")}</p>${(rec.conditions || []).length ? `<p>Conditions: ${rec.conditions.map(esc).join("; ")}.</p>` : ""}` : "<p>Run the Recommendation Agent to populate.</p>" }
-    ];
-  }
-
-  // Deal type (VC/PE/M&A) is passed to the agents as context to tune analysis —
-  // it does not gate this decision on a per-deal-type document checklist. The
-  // only "insufficient information" signal is simply how much has been uploaded.
-  function heuristicRecommendation(project) {
-    const risks = project.riskRegister?.risks || [];
-    const critical = risks.filter((r) => r.severity === "Critical").length;
-    const high = risks.filter((r) => r.severity === "High").length;
-    const documentCount = (project.documents || []).length;
-    const insufficient = documentCount < 2;
-    let decision, confidence, rationale;
-    if (critical >= 1 && high >= 2) { decision = "Do Not Invest"; confidence = 78; rationale = "Multiple critical/high risks outweigh the thesis at current terms."; }
-    else if (insufficient) { decision = "Continue Due Diligence"; confidence = 64; rationale = `Only ${documentCount} document(s) uploaded so far — gather more before deciding.`; }
-    else if (critical >= 1 || high >= 1) { decision = "Invest with Conditions"; confidence = 72; rationale = "Thesis is supportable subject to remediation of the highest-severity risks."; }
-    else { decision = "Invest"; confidence = 80; rationale = "No critical risks identified and the available documentation supports the thesis."; }
-    return {
-      decision, confidence, rationale,
-      conditions: risks.filter((r) => ["Critical", "High"].includes(r.severity)).slice(0, 4).map((r) => `Resolve: ${r.title}`),
-      unresolved: []
-    };
-  }
-
-  // Overlay the learning-bank signal onto a recommendation (model or heuristic).
-  // Mutates `rec`: shifts a raw "Invest" toward caution when comparable deals had
-  // a weak track record, nudges confidence, surfaces historically-missed risks,
-  // and records a `learning` block the UI can display.
+  // Overlay the learning-bank signal onto the model's recommendation. Mutates
+  // `rec`: shifts a raw "Invest" toward caution when comparable deals had a weak
+  // track record, nudges confidence, surfaces historically-missed risks, and
+  // records a `learning` block the UI can display.
   function applyLearningToRecommendation(rec, signal) {
     if (!rec || !signal || !signal.count) return rec;
     rec.unresolved = rec.unresolved || [];
@@ -551,8 +397,9 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     return results;
   }
 
-  // heuristicRecommendation/heuristicCrossValidation are exposed in addition to the
-  // main run/runAll entry points so tests can exercise the deterministic decision
-  // logic directly, without needing a project run through the full agent pipeline.
-  DD.agents = { REGISTRY, run, runAll, ensure, addFinding, heuristicRecommendation, heuristicCrossValidation };
+  // deterministicCrossChecks is exposed in addition to the main run/runAll entry
+  // points so tests can exercise the deterministic checks directly, without
+  // needing a project run through the full agent pipeline (which now requires
+  // a real model call).
+  DD.agents = { REGISTRY, run, runAll, ensure, addFinding, deterministicCrossChecks };
 })();

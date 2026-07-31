@@ -1,20 +1,18 @@
 /* Sentinel DD — LLM client (server-proxied)
- * The model API key is a server secret and never reaches the browser. This
- * module keeps only the user's provider/model *preference* (which model to ask
- * the server to use) and routes every call through the authenticated proxy
- * (/api/llm). If the server has no key, agents fall back to the heuristic engine. */
+ * OpenAI is the sole provider — the model API key is a server secret and never
+ * reaches the browser. This module keeps only the user's model *preference*
+ * (which model to ask the server to use) and routes every call through the
+ * authenticated proxy (/api/llm). There is no fallback engine: if the server
+ * has no key, or the call fails, agents throw rather than substituting
+ * anything (see public/js/agents.js). */
 (function () {
   const DD = (window.DD = window.DD || {});
   const CONFIG_KEY = "sentinel-dd-llm";
 
-  const DEFAULTS = {
-    provider: "claude",           // "claude" | "openai" — preference only
-    claudeModel: "claude-opus-4-8",
-    openaiModel: "gpt-4o"
-  };
+  const DEFAULTS = { model: "gpt-4o" };
 
   // Server AI availability, cached from /api/llm/status (see refreshStatus).
-  let status = { configured: false, provider: "claude", dailyLimit: null };
+  let status = { configured: false, dailyLimit: null };
 
   function getConfig() {
     try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}") }; }
@@ -34,7 +32,7 @@
 
   async function refreshStatus() {
     try { status = await DD.api.llm.status(); }
-    catch { status = { configured: false, provider: getConfig().provider, dailyLimit: null }; }
+    catch { status = { configured: false, dailyLimit: null }; }
     return status;
   }
 
@@ -51,23 +49,21 @@
   /* Run a specialized agent prompt through the server proxy and return parsed JSON.
    * system: the agent's specialization prompt. user: the diligence context payload. */
   async function runJSON(system, user) {
-    const cfg = getConfig();
-    const model = cfg.provider === "openai" ? cfg.openaiModel : cfg.claudeModel;
-    const { text } = await DD.api.llm.run({ system, user, provider: cfg.provider, model });
+    const { model } = getConfig();
+    const { text } = await DD.api.llm.run({ system, user, model });
     return extractJson(text);
   }
 
-  /* Verify the server can actually reach the model, end-to-end (one small call). */
+  /* Verify the server can actually reach OpenAI, end-to-end (one small call). */
   async function testConnection() {
     try {
-      const cfg = getConfig();
-      const model = cfg.provider === "openai" ? cfg.openaiModel : cfg.claudeModel;
+      const { model } = getConfig();
       const { text } = await DD.api.llm.run({
         system: 'Reply with a tiny JSON object like {"ok":true}.',
-        user: "ping", provider: cfg.provider, model, maxTokens: 20
+        user: "ping", model
       });
       await refreshStatus();
-      return { ok: true, provider: cfg.provider, model, message: `Server reached ${cfg.provider === "openai" ? "OpenAI" : "Claude"} (${model}). Reply: ${(text || "").slice(0, 40)}` };
+      return { ok: true, model, message: `Server reached OpenAI (${model}). Reply: ${(text || "").slice(0, 40)}` };
     } catch (err) {
       return { ok: false, message: err.message };
     }

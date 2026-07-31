@@ -530,6 +530,10 @@ h3 {
   background: var(--muted);
 }
 
+.health-pill.danger span {
+  background: var(--danger);
+}
+
 .health-pill span {
   width: 8px;
   height: 8px;

@@ -1,7 +1,8 @@
-/* Sentinel DD — deterministic analysis engine (no-API fallback)
- * Produces structured, evidence-linked findings from the actual extracted document text
- * so every agent is fully functional offline. When an API key is set, js/agents.js uses
- * the LLM instead and this only supplies the financial number-crunching. */
+/* Sentinel DD — deterministic financial math
+ * Parses financial statement text into structured rows and computes
+ * growth/margin/anomaly figures. This is exact number-crunching the Financial
+ * Agent relies on regardless of which AI answers — not an alternative to the
+ * AI (agents.js requires a configured model; see its header comment). */
 (function () {
   const DD = (window.DD = window.DD || {});
 
@@ -109,45 +110,11 @@
     return String(n);
   }
 
-  // ---------- Document signal libraries (per agent) ----------
-  const SIGNALS = {
-    "legal-agent": [
-      { kw: ["change of control", "change-of-control"], title: "Change-of-control exposure", severity: "High", summary: "Contract language includes change-of-control provisions that may require counterparty consent or trigger renegotiation at close." },
-      { kw: ["indemnif"], title: "Indemnification obligations", severity: "Medium", summary: "Broad indemnification obligations identified that warrant caps and survival-period review." },
-      { kw: ["litigation", "lawsuit", "plaintiff", "defendant"], title: "Litigation reference", severity: "High", summary: "Documents reference active or threatened litigation requiring legal exposure quantification." },
-      { kw: ["exclusiv"], title: "Exclusivity commitments", severity: "Medium", summary: "Exclusivity terms may constrain commercial flexibility post-acquisition." },
-      { kw: ["auto-renew", "automatic renewal", "evergreen"], title: "Auto-renewal terms", severity: "Low", summary: "Auto-renewal clauses affect revenue durability assumptions and termination rights." },
-      { kw: ["non-compete", "noncompete"], title: "Restrictive covenants", severity: "Medium", summary: "Non-compete / restrictive covenants present enforceability and retention considerations." }
-    ],
-    "commercial-agent": [
-      { kw: ["churn", "attrition"], title: "Customer churn signal", severity: "Medium", summary: "Churn/attrition data present; validate net revenue retention against the growth case." },
-      { kw: ["top customer", "customer concentration", "largest customer"], title: "Customer concentration", severity: "High", summary: "Materials indicate revenue concentration among top customers, a durability risk to the plan." },
-      { kw: ["discount", "pricing pressure"], title: "Pricing pressure", severity: "Medium", summary: "Evidence of discounting or competitive pricing pressure affecting realized ARPU." },
-      { kw: ["pipeline", "bookings"], title: "Pipeline coverage", severity: "Low", summary: "Pipeline data available to test forward bookings coverage versus forecast." },
-      { kw: ["competitor", "market share"], title: "Competitive dynamics", severity: "Low", summary: "Competitive positioning references identified for market-sizing cross-check." }
-    ],
-    "operational-agent": [
-      { kw: ["soc 2", "iso 27001", "penetration test"], title: "Security posture", severity: "Medium", summary: "Security certification/remediation evidence found; verify status and closure dates." },
-      { kw: ["single supplier", "sole source", "key supplier", "vendor dependency"], title: "Supplier concentration", severity: "High", summary: "Dependency on a limited supplier base introduces operational continuity risk." },
-      { kw: ["downtime", "outage", "uptime"], title: "Reliability signal", severity: "Medium", summary: "Availability/incident references require SLA and reliability assessment." },
-      { kw: ["key person", "key-person", "single point"], title: "Key-person risk", severity: "Medium", summary: "Concentration of critical knowledge in individuals without documented coverage." },
-      { kw: ["scalab", "capacity"], title: "Scalability constraint", severity: "Low", summary: "Capacity/scalability considerations to validate against the growth plan." },
-      { kw: ["gdpr", "hipaa", "compliance"], title: "Regulatory/compliance exposure", severity: "Medium", summary: "Regulatory obligations referenced that require compliance validation." }
-    ]
-  };
-
-  function severityConfidence(severity, matchStrength) {
-    const base = { High: 88, Medium: 80, Low: 72 }[severity] || 75;
-    return Math.min(97, base + Math.min(8, matchStrength));
-  }
-
   DD.heuristics = {
     parseFinancials,
     computeFinancialMetrics,
     financialAnomalies,
     pctChange,
-    fmt,
-    SIGNALS,
-    severityConfidence
+    fmt
   };
 })();
