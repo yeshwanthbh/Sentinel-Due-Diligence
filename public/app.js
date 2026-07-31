@@ -580,9 +580,6 @@ function renderFinancial() {
     <p class="muted">Basis: ${escapeHtml(fin.valuation.basis)}</p>
     ${fin.valuation.rows.map((r) => `<div class="valuation-row"><span>${escapeHtml(r.label)}</span><strong>${escapeHtml(String(r.value))}</strong></div>`).join("")}`
     : `<p class="muted">Run the analysis to generate an indicative valuation bridge.</p>`;
-
-  const finFindings = currentProject.findings.Financial || [];
-  $("#financialFindingsList").innerHTML = finFindings.map((f) => findingCard(f, "Financial")).join("") || `<p class="muted">No financial findings yet.</p>`;
 }
 
 /* ---- Research page ---- */
@@ -839,7 +836,6 @@ function renderEmptyWorkspace() {
   const body = $("#memoBody"); body.innerHTML = muted("Create a project to draft a memo."); body.dataset.projectId = "";
   $("#financialMetricGrid").innerHTML = muted("No project selected.");
   $("#financialTrendTable").innerHTML = ""; $("#valuationPanel").innerHTML = "";
-  $("#financialFindingsList").innerHTML = muted("No project selected.");
   $("#financialChecklist").innerHTML = ""; $("#financialStatementInput").value = "";
   $("#financialSourceBadge").textContent = "No data";
   $("#comparableDeals").innerHTML = muted("Create a project to see comparable past deals.");
