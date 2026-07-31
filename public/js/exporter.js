@@ -4,6 +4,8 @@
 (function () {
   const DD = (window.DD = window.DD || {});
 
+  const DISCLAIMER = "AI-generated analysis. Not investment advice. A qualified human must independently review and verify every finding, risk, and recommendation in this report before any capital is committed.";
+
   function allFindings(project) {
     const rows = [];
     Object.entries(project.findings || {}).forEach(([bucket, list]) =>
@@ -37,6 +39,7 @@
     };
     line(`${project.name} — Due Diligence Report`, 20, true, 10);
     line(`${project.industry} • ${project.type || project.workflow || ""} • Generated ${new Date().toLocaleString()}`, 10, false, 14);
+    line(DISCLAIMER, 9, true, 16);
 
     const rec = project.recommendation;
     line("Recommendation", 15, true, 8);
@@ -63,11 +66,12 @@
       `<tr><td>${esc(r.severity)}</td><td>${esc(r.title)}</td><td>${esc(r.category)}</td><td>${esc(r.likelihood)}</td><td>${r.confidence}%</td></tr>`).join("");
     const rec = project.recommendation;
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(project.name)}</title>
-      <style>body{font-family:Calibri,Arial,sans-serif;} table{border-collapse:collapse;width:100%;margin:8px 0;} td,th{border:1px solid #999;padding:6px;font-size:11pt;text-align:left;} h1{font-size:20pt;} h2{font-size:14pt;border-bottom:2px solid #333;}</style></head><body>
+      <style>body{font-family:Calibri,Arial,sans-serif;} table{border-collapse:collapse;width:100%;margin:8px 0;} td,th{border:1px solid #999;padding:6px;font-size:11pt;text-align:left;} h1{font-size:20pt;} h2{font-size:14pt;border-bottom:2px solid #333;} .disclaimer{background:#fff6e0;border:1px solid #e0b84a;padding:8px 12px;font-size:10pt;font-style:italic;}</style></head><body>
       <h1>${esc(project.name)} — Investment Committee Memorandum</h1>
       <p>${esc(project.industry)} • ${esc(project.type || project.workflow || "")} • ${new Date().toLocaleDateString()}</p>
+      <p class="disclaimer">${esc(DISCLAIMER)}</p>
       <h2>Recommendation</h2><p>${rec ? `<strong>${esc(rec.decision)}</strong> (${rec.confidence}% confidence). ${esc(rec.rationale || "")}` : "Not generated."}</p>
-      <h2>Memo</h2>${project.memoHtml || "<p>No memo drafted.</p>"}
+      <h2>Memo</h2>${DD.util.sanitizeMemoHtml(project.memoHtml) || "<p>No memo drafted.</p>"}
       <h2>Findings</h2><table><tr><th>Workstream</th><th>Finding</th><th>Severity</th><th>Confidence</th><th>Status</th></tr>${findingsHtml}</table>
       <h2>Risk Register</h2><table><tr><th>Severity</th><th>Risk</th><th>Category</th><th>Likelihood</th><th>Confidence</th></tr>${risksHtml}</table>
       </body></html>`;
@@ -78,6 +82,12 @@
   function exportExcel(project) {
     if (!window.XLSX) throw new Error("SheetJS not loaded");
     const wb = window.XLSX.utils.book_new();
+
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet([
+      { Notice: DISCLAIMER },
+      { Notice: `Generated ${new Date().toLocaleString()} for ${project.name} (${project.industry || "—"}).` }
+    ]), "Read Me");
+
     const findings = allFindings(project).map((f) => ({
       Workstream: f.bucket, Finding: f.title, Summary: f.summary,
       Severity: f.severity, Confidence: f.confidence, Status: f.status
@@ -104,6 +114,7 @@
     let slide = pptx.addSlide();
     slide.addText(`${project.name}`, { x: 0.5, y: 1.6, w: 9, fontSize: 34, bold: true });
     slide.addText(`Due Diligence Summary • ${project.industry}`, { x: 0.5, y: 2.5, w: 9, fontSize: 18, color: "666666" });
+    slide.addText(DISCLAIMER, { x: 0.5, y: 4.9, w: 9, h: 0.6, fontSize: 10, italic: true, color: "996600" });
 
     slide = pptx.addSlide();
     slide.addText("Recommendation", { x: 0.5, y: 0.4, fontSize: 24, bold: true });

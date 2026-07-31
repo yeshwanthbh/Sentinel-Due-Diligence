@@ -46,7 +46,8 @@
         sheets: extracted.sheetNames || null,
         paragraphs: extracted.paragraphCount || null,
         pdfMeta: extracted.meta?.info || null,
-        error: extracted.error || null
+        error: extracted.error || null,
+        truncated: extracted.truncated || false
       }
     };
 

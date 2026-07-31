@@ -182,7 +182,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     let source = "heuristic";
     let output = null;
     let modelError = null;
-    if (DD.llm.isConfigured() && agent.kind !== "cross") {
+    if (DD.llm.isConfigured()) {
       try {
         output = await DD.llm.runJSON(agent.system, JSON.stringify(context));
         source = "model";
@@ -252,9 +252,20 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     },
 
     cross(project, agent, output, source) {
-      const result = heuristicCrossValidation(project);
-      project.crossValidation = { ...result, source: "heuristic", generatedAt: new Date().toISOString() };
-      return { contradictions: result.contradictions.length };
+      // The heuristic pass (duplicate docs, growth-rate reconciliation) always runs —
+      // it's cheap and orthogonal to what a model would catch. When a model is
+      // configured and responds, its semantic contradiction-detection is layered on
+      // top rather than replacing the deterministic checks.
+      const heuristic = heuristicCrossValidation(project);
+      let contradictions = heuristic.contradictions;
+      if (source === "model" && output?.contradictions?.length) {
+        contradictions = [...output.contradictions, ...heuristic.contradictions];
+      }
+      if (source === "model" && output?.confidenceAdjustments?.length) {
+        applyCrossValidationAdjustments(project, output.confidenceAdjustments);
+      }
+      project.crossValidation = { contradictions, source, generatedAt: new Date().toISOString() };
+      return { contradictions: contradictions.length };
     },
 
     risk(project, agent, output, source) {
@@ -270,7 +281,9 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
 
     memo(project, agent, output, source) {
       const sections = (source === "model" && output?.sections?.length) ? output.sections : heuristicMemoSections(project);
-      project.memoHtml = sections.map((s) => `<h2>${DD.util.escapeHtml(s.heading)}</h2>${s.html}`).join("\n");
+      // Sanitize model-generated section HTML — it's built from untrusted uploaded-
+      // document text and would otherwise be inserted via innerHTML verbatim.
+      project.memoHtml = sections.map((s) => `<h2>${DD.util.escapeHtml(s.heading)}</h2>${DD.util.sanitizeMemoHtml(s.html)}`).join("\n");
       project.memoSectionsMeta = sections.map((s) => s.heading);
       return { sections: sections.length };
     },
@@ -375,6 +388,19 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       citations: [{ claim: `${project.name} is in ${project.industry}`, source: "Project metadata", confidence: 60 }],
       source: "heuristic", generatedAt: new Date().toISOString()
     };
+  }
+
+  // Applies the cross-validation model's semantic confidence adjustments (e.g. "this
+  // finding contradicts another agent's figures") to the matching findings by title.
+  function applyCrossValidationAdjustments(project, adjustments) {
+    const all = [];
+    Object.values(project.findings).forEach((list) => list.forEach((f) => all.push(f)));
+    adjustments.forEach((a) => {
+      const target = all.find((f) => f.title === a.findingTitle);
+      if (target && Number.isFinite(Number(a.newConfidence))) {
+        target.confidence = Math.max(1, Math.min(99, Math.round(Number(a.newConfidence))));
+      }
+    });
   }
 
   function heuristicCrossValidation(project) {
@@ -523,5 +549,8 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     return results;
   }
 
-  DD.agents = { REGISTRY, run, runAll, ensure, addFinding };
+  // heuristicRecommendation/heuristicCrossValidation are exposed in addition to the
+  // main run/runAll entry points so tests can exercise the deterministic decision
+  // logic directly, without needing a project run through the full agent pipeline.
+  DD.agents = { REGISTRY, run, runAll, ensure, addFinding, heuristicRecommendation, heuristicCrossValidation };
 })();

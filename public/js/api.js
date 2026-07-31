@@ -6,7 +6,11 @@
 (function () {
   const DD = (window.DD = window.DD || {});
 
-  async function req(method, path, body) {
+  // A hung request (dead connection, unresponsive upstream) would otherwise leave
+  // the caller — e.g. the analysis orchestrator's spinner — waiting forever with no
+  // way to recover. timeoutMs defaults generously since document analysis can
+  // legitimately take a while, but every call still has SOME bound.
+  async function req(method, path, body, timeoutMs = 30_000) {
     const init = { method, credentials: "include", headers: {} };
     if (body !== undefined) {
       if (body instanceof FormData) {
@@ -16,11 +20,17 @@
         init.body = JSON.stringify(body);
       }
     }
+    const controller = new AbortController();
+    init.signal = controller.signal;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res;
     try {
       res = await fetch(path, init);
     } catch (networkErr) {
+      if (networkErr.name === "AbortError") throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s.`);
       throw new Error(`Network error: ${networkErr.message}. Is the backend running?`);
+    } finally {
+      clearTimeout(timer);
     }
     const isJson = (res.headers.get("content-type") || "").includes("application/json");
     const data = isJson ? await res.json() : await res.text();
@@ -46,7 +56,7 @@
       del: (pid) => req("DELETE", `/api/projects/${id(pid)}`)
     },
     documents: {
-      upload: (pid, formData) => req("POST", `/api/projects/${id(pid)}/documents`, formData),
+      upload: (pid, formData) => req("POST", `/api/projects/${id(pid)}/documents`, formData, 60_000),
       list: (pid) => req("GET", `/api/projects/${id(pid)}/documents`),
       contentUrl: (docId) => `/api/documents/${id(docId)}/content`,
       del: (docId) => req("DELETE", `/api/documents/${id(docId)}`)
@@ -59,7 +69,7 @@
       del: (outcomeId) => req("DELETE", `/api/outcomes/${id(outcomeId)}`)
     },
     llm: {
-      run: (payload) => req("POST", "/api/llm", payload),
+      run: (payload) => req("POST", "/api/llm", payload, 90_000),
       status: () => req("GET", "/api/llm/status")
     }
   };

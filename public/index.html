@@ -63,6 +63,7 @@
           <p id="sidebarProjectMeta">Growth equity, $185M.</p>
           <div class="mini-progress"><span id="sidebarProjectProgress" style="width: 72%"></span></div>
         </div>
+        <p class="sidebar-disclaimer"><i data-lucide="alert-triangle"></i>AI-generated analysis. Requires human review before any investment decision.</p>
       </aside>
 
       <main class="main">
@@ -87,7 +88,7 @@
               <span class="eyebrow">Portfolio Command Center</span>
               <h1>Active diligence workspace</h1>
             </div>
-            <div class="health-pill"><span></span>AI systems healthy</div>
+            <div class="health-pill" id="dashboardHealthPill"><span></span>Checking AI engine…</div>
           </div>
           <div class="metric-grid">
             <article class="metric-card"><span>Active Projects</span><strong>0</strong><small>—</small></article>
@@ -154,7 +155,7 @@
           <article class="panel upload-progress-panel" id="uploadProgressPanel">
             <div class="panel-head">
               <div><span class="eyebrow">Secure Intake</span><h2>Upload progress</h2></div>
-              <span class="status-badge success" id="secureStorageStatus">Encrypted local storage</span>
+              <span class="status-badge success" id="secureStorageStatus">Stored in Cloudflare R2 (encrypted at rest)</span>
             </div>
             <div class="upload-queue" id="uploadQueue"><p class="muted">No active uploads. Drop files above to begin secure intake.</p></div>
           </article>
@@ -181,16 +182,10 @@
             </div>
           </div>
           <div id="orchestratorProgress"></div>
-        </section>
 
-        <!-- FINANCIAL AGENT (hidden) -->
-        <section class="page" id="financial-agent" style="display:none;">
-          <div class="page-head">
-            <div><span class="eyebrow">Financial Specialist</span><h1>Financial Due Diligence Agent</h1></div>
-            <div class="button-row">
-              <button class="secondary-button" id="loadSampleFinancials" type="button"><i data-lucide="table"></i>Load Sample</button>
-              <button class="primary-button" id="runFinancialAgent" type="button"><i data-lucide="calculator"></i>Run Analysis</button>
-            </div>
+          <div class="panel-head" style="margin-top:26px;">
+            <div><span class="eyebrow">Financial Specialist</span><h2>Financial statement intake &amp; output</h2></div>
+            <button class="secondary-button" id="loadSampleFinancials" type="button"><i data-lucide="table"></i>Load Sample</button>
           </div>
           <div class="financial-workspace">
             <article class="panel financial-input-panel">
@@ -201,6 +196,7 @@
                 <span>CSV, TSV, XLSX, or copied spreadsheet export</span>
               </label>
               <label class="field financial-textarea"><span>Financial statement rows</span><textarea id="financialStatementInput" spellcheck="false" placeholder="Revenue, 100, 120, 145&#10;COGS, 40, 46, 52&#10;EBITDA, 12, 18, 24"></textarea></label>
+              <p class="muted" style="font-size:12px;">Pasted or uploaded here before "Start Analysis" — this feeds the Financial agent alongside any Financial-category documents in the Data Room.</p>
             </article>
             <article class="panel">
               <div class="panel-head"><div><span class="eyebrow">Agent Coverage</span><h2>Workstreams analyzed</h2></div></div>
@@ -215,20 +211,18 @@
           <div class="financial-analysis-grid">
             <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
           </div>
-        </section>
 
-        <!-- RESEARCH (hidden) -->
-        <section class="page" id="research" style="display:none;">
-          <div class="page-head">
-            <div><span class="eyebrow">External Intelligence</span><h1>Research &amp; market intelligence</h1></div>
-            <button class="primary-button" id="runResearchAgent" type="button"><i data-lucide="globe"></i>Run Research Agent</button>
+          <div class="panel-head" style="margin-top:26px;">
+            <div><span class="eyebrow">External Intelligence</span><h2>Research profile</h2></div>
+            <span class="status-badge warning" title="Drawn from the model's training data only — no live web search is connected. Verify externally before relying on it.">Model recall — not live-verified</span>
           </div>
-          <div class="research-grid" id="researchGrid"><p class="muted">Run the Research Agent to gather company overview, competitors, executives, news, patents, filings, and market data with citations.</p></div>
+          <div class="research-grid" id="researchGrid"><p class="muted">Run the analysis to gather company overview, competitors, executives, news, patents, filings, and market data.</p></div>
         </section>
 
         <!-- ANALYSIS WORKSPACE (Findings + Missing + Risks) -->
         <section class="page" id="analysis-workspace">
           <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings, gaps &amp; risk in one place</h1></div></div>
+          <p class="disclaimer-note"><i data-lucide="alert-triangle"></i>AI-generated findings, severities, and confidence scores. Review and verify each item before relying on it — do not treat this as a substitute for a qualified human analyst's sign-off.</p>
           <div class="tabs workspace-tabs" id="workspaceTabs">
             <button class="tab-button active" data-subtab="findings-pane"><i data-lucide="list-checks"></i>Findings</button>
             <button class="tab-button" data-subtab="missing-pane"><i data-lucide="circle-help"></i>Missing Info</button>

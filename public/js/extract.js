@@ -27,28 +27,46 @@
     return typeof file.text === "function" ? file.text() : new Response(file).text();
   }
 
+  // Extraction runs on the main thread and OCR in particular can take multiple
+  // seconds per page, so an unbounded document could freeze the tab's perceived
+  // responsiveness for a very long time. Cap both the pages actually processed and,
+  // separately, how many of those pages can trigger OCR (the truly expensive path).
+  const MAX_PDF_PAGES = 300;
+  const MAX_OCR_PAGES = 50;
+
   // ---- PDF ----
   async function extractPdf(arrayBuffer, { onProgress } = {}) {
     if (!libReady().pdf) throw new Error("pdf.js not loaded");
     const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+    const totalPages = pdf.numPages;
+    const pagesToProcess = Math.min(totalPages, MAX_PDF_PAGES);
+    const truncated = totalPages > MAX_PDF_PAGES;
     const pages = [];
     let ocrUsed = false;
-    for (let p = 1; p <= pdf.numPages; p += 1) {
+    let ocrCount = 0;
+    for (let p = 1; p <= pagesToProcess; p += 1) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
       let text = content.items.map((item) => item.str).join(" ").replace(/\s+/g, " ").trim();
-      if (text.length < 12 && libReady().ocr) {
-        try { text = await ocrPage(page); ocrUsed = true; } catch { /* ignore ocr failure */ }
+      if (text.length < 12 && libReady().ocr && ocrCount < MAX_OCR_PAGES) {
+        try { text = await ocrPage(page); ocrUsed = true; ocrCount += 1; } catch { /* ignore ocr failure */ }
       }
       pages.push({ page: p, text });
-      if (onProgress) onProgress(Math.round((p / pdf.numPages) * 100));
+      if (onProgress) onProgress(Math.round((p / pagesToProcess) * 100));
+    }
+    if (truncated) {
+      pages.push({
+        page: pagesToProcess + 1,
+        text: `[Truncated: ${totalPages - MAX_PDF_PAGES} additional page(s) not processed — this document exceeds the ${MAX_PDF_PAGES}-page extraction limit. Split it or upload the relevant sections separately for full coverage.]`
+      });
     }
     return {
       pages,
       fullText: pages.map((pg) => pg.text).join("\n\n"),
-      pageCount: pdf.numPages,
+      pageCount: totalPages,
       tableCount: 0,
       ocrUsed,
+      truncated,
       meta: await pdf.getMetadata().catch(() => null)
     };
   }

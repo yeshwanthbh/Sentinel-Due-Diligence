@@ -36,6 +36,12 @@ function showToast(message) {
   window.setTimeout(() => toast.classList.remove("show"), 2800);
 }
 
+// Turns a rejected promise into a visible toast instead of a silent, unhandled
+// failure — used to wrap fire-and-forget async calls from click handlers.
+function reportError(prefix) {
+  return (error) => { console.error(error); showToast(`${prefix}: ${error.message || "unknown error"}`); };
+}
+
 function requireProject() {
   if (!currentProject) { showToast("Create a project first."); return false; }
   return true;
@@ -234,7 +240,7 @@ async function saveCurrentProject(reason = "Project saved") {
 
 function scheduleSave(reason) {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => saveCurrentProject(reason), 400);
+  saveTimer = window.setTimeout(() => saveCurrentProject(reason).catch(reportError("Autosave failed — your last edit may not be saved")), 400);
 }
 
 /* --------------------------------------------------------------- rendering */
@@ -263,7 +269,16 @@ function countFindings(project, predicate) {
   return Object.values(project.findings || {}).flat().filter(predicate || (() => true)).length;
 }
 
+// Doesn't depend on currentProject — the AI key is configured server-side per account.
+function renderHealthPill() {
+  const pill = $("#dashboardHealthPill");
+  const aiConfigured = window.DD.llm.isConfigured();
+  pill.className = `health-pill ${aiConfigured ? "" : "info"}`.trim();
+  pill.innerHTML = `<span></span>${aiConfigured ? "Live AI engine configured" : "Heuristic engine only — no AI key configured"}`;
+}
+
 function renderDashboard() {
+  renderHealthPill();
   const cards = document.querySelectorAll("#dashboard .metric-card");
   const totalDocs = projects.reduce((s, p) => s + (p.documents?.length || 0), 0);
   const totalFindings = projects.reduce((s, p) => s + countFindings(p), 0);
@@ -445,9 +460,8 @@ function renderAnalysis() {
   const progress = agents.map(([key, a]) => {
     const runInfo = runs[key];
     const done = Boolean(runInfo);
-    // "cross" agents are heuristic by design; only flag model/heuristic for the rest.
     const isModel = runInfo && runInfo.source === "model";
-    const tag = !done ? "" : runInfo.kind === "cross" ? "" : isModel ? " · model" : " · heuristic";
+    const tag = !done ? "" : isModel ? " · model" : " · heuristic";
     const tagClass = isModel ? "success" : "info";
     return `<div class="agent-run-item">
       <div class="agent-run-top"><strong>${escapeHtml(a.name)}</strong><span class="status-badge ${done ? tagClass : "info"}">${done ? `✓${tag}` : "—"}</span></div>
@@ -545,7 +559,7 @@ async function runOrchestrator() {
     // Derive the true engine from what the agents ACTUALLY did, not from whether a
     // key merely exists. Agents fall back to heuristics silently when a model call
     // fails (bad key, CORS, quota), so trust the recorded per-agent source instead.
-    const modelable = results.filter((r) => r.kind !== "cross");
+    const modelable = results;
     const modelRuns = modelable.filter((r) => r.source === "model").length;
     const keyConfigured = window.DD.llm.isConfigured();
     // Capture the first real API error so we can tell the user WHY agents fell back,
@@ -586,6 +600,31 @@ async function runOrchestrator() {
   }
 }
 
+// Re-runs just the Risk and Recommendation agents against the findings already on
+// hand — for when a reviewer edits/approves findings and wants the register and
+// decision to reflect that without re-running the full 9-agent orchestrator.
+async function rebuildRiskRegister() {
+  if (!requireProject()) return;
+  if (!Object.values(currentProject.findings || {}).flat().length) {
+    showToast("Run the analysis first — the risk register is built from findings.");
+    return;
+  }
+  const btn = $("#runRiskAgent");
+  btn.disabled = true;
+  showToast("Rebuilding risk register…");
+  try {
+    await window.DD.agents.run(currentProject, "risk-agent");
+    await window.DD.agents.run(currentProject, "recommendation-agent");
+    await saveCurrentProject("Risk register rebuilt");
+    renderProjectSurfaces();
+    showToast("Risk register rebuilt.");
+  } catch (error) {
+    reportError("Couldn't rebuild risk register")(error);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ---- Financial page ---- */
 function renderFinancial() {
   const fin = currentProject.financial;
@@ -614,7 +653,7 @@ function renderFinancial() {
 /* ---- Research page ---- */
 function renderResearch() {
   const r = currentProject.research;
-  if (!r) { $("#researchGrid").innerHTML = `<p class="muted">Run the Research Agent to gather company overview, competitors, executives, news, patents, filings, and market data with citations.</p>`; return; }
+  if (!r) { $("#researchGrid").innerHTML = `<p class="muted">Run the analysis to gather company overview, competitors, executives, news, patents, filings, and market data.</p>`; return; }
   const list = (title, items, render) => `<article class="panel"><div class="panel-head"><div><span class="eyebrow">${title}</span></div></div>${items && items.length ? items.map(render).join("") : `<p class="muted">None found.</p>`}</article>`;
   $("#researchGrid").innerHTML = `
     <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Overview</span><h2>${escapeHtml(currentProject.name)}</h2></div><span class="status-badge info">${r.source} • ${escapeHtml(r.industry || "")}</span></div>
@@ -625,7 +664,7 @@ function renderResearch() {
     ${list("Patents", r.patents, (p) => `<div class="research-row"><strong>${escapeHtml(p.title || p.note || "Patent")}</strong><span>${escapeHtml(p.note || "")}</span></div>`)}
     ${list("Regulatory filings", r.filings, (f) => `<div class="research-row"><strong>${escapeHtml(f.type || "Filing")}</strong><span>${escapeHtml(f.note || "")}</span></div>`)}
     <article class="panel"><div class="panel-head"><div><span class="eyebrow">Market</span></div></div><p><strong>Size:</strong> ${escapeHtml(r.market?.size || "—")} • <strong>Growth:</strong> ${escapeHtml(r.market?.growth || "—")}</p><p class="muted">${escapeHtml(r.market?.notes || "")}</p></article>
-    <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Citations &amp; confidence</span></div></div>
+    <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Claims &amp; self-reported confidence</span></div></div>
       ${(r.citations || []).map((c) => `<div class="research-row"><span>${escapeHtml(c.claim)}</span><span class="confidence">${escapeHtml(c.source || "")} • ${c.confidence || 60}%</span></div>`).join("") || `<p class="muted">No citations.</p>`}</article>`;
 }
 
@@ -710,13 +749,15 @@ function renderMemo() {
   const sections = currentProject.memoSectionsMeta || ["Executive Summary", "Investment Thesis", "Financial Analysis", "Legal Analysis", "Commercial Analysis", "Operational Analysis", "Key Risks", "Recommendation"];
   $("#memoNav").innerHTML = sections.map((s, i) => `<button class="${i === 0 ? "secondary-button" : "ghost-button"}" data-memo-jump="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join("");
   const body = $("#memoBody");
-  if (body.dataset.projectId !== currentProject.id) { body.innerHTML = currentProject.memoHtml; body.dataset.projectId = currentProject.id; }
+  if (body.dataset.projectId !== currentProject.id) { body.innerHTML = window.DD.util.sanitizeMemoHtml(currentProject.memoHtml); body.dataset.projectId = currentProject.id; }
   const rec = currentProject.recommendation;
   $("#recommendationBanner").innerHTML = rec ? `
     <div class="rec-pill rec-${rec.decision.replace(/\s+/g, "-").toLowerCase()}">
       <div><span class="eyebrow">Recommendation (${rec.source} engine)</span><strong>${escapeHtml(rec.decision)}</strong></div>
       <div class="rec-meta"><span>${rec.confidence}% confidence</span>${rec.learning ? `<span>📈 Informed by ${rec.learning.comparables} comparable past deal(s)</span>` : ""}<span>${escapeHtml(rec.rationale || "")}</span></div>
-    </div>` : `<p class="muted">Run the Recommendation Agent to generate a decision.</p>`;
+    </div>
+    <p class="disclaimer-note"><i data-lucide="alert-triangle"></i>AI-generated, not investment advice. A qualified human must independently verify this analysis before any capital is committed.</p>` : `<p class="muted">Run the Recommendation Agent to generate a decision.</p>`;
+  refreshIcons();
 }
 
 function renderReports() {
@@ -829,6 +870,7 @@ async function deleteOutcome(id) {
 }
 
 function renderEmptyWorkspace() {
+  renderHealthPill();
   document.querySelectorAll("#dashboard .metric-card").forEach((card) => {
     card.querySelector("strong").textContent = "0";
     card.querySelector("small").textContent = "Create a project to begin";
@@ -855,6 +897,10 @@ function renderEmptyWorkspace() {
   $("#recommendationBanner").innerHTML = ""; $("#memoNav").innerHTML = "";
   const body = $("#memoBody"); body.innerHTML = muted("Create a project to draft a memo."); body.dataset.projectId = "";
   $("#financialMetricGrid").innerHTML = muted("No project selected.");
+  $("#financialTrendTable").innerHTML = ""; $("#valuationPanel").innerHTML = "";
+  $("#financialFindingsList").innerHTML = muted("No project selected.");
+  $("#financialChecklist").innerHTML = ""; $("#financialStatementInput").value = "";
+  $("#financialSourceBadge").textContent = "No data";
   $("#comparableDeals").innerHTML = muted("Create a project to see comparable past deals.");
   $("#learningStats").innerHTML = ""; $("#outcomeList").innerHTML = muted("No project selected.");
   renderSettings();
@@ -867,6 +913,8 @@ function renderProjectSurfaces() {
   renderProjectsPage();
   renderDataRoom();
   renderAnalysis();
+  renderFinancial();
+  renderResearch();
   renderFindings();
   renderMissing();
   renderRisks();
@@ -989,13 +1037,13 @@ function wireInteractions() {
       if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab);
     }
     const subtab = event.target.closest("#workspaceTabs [data-subtab]"); if (subtab) showWorkspaceTab(subtab.dataset.subtab);
-    const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject);
-    const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject);
+    const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject).catch(reportError("Couldn't open project"));
+    const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject).catch(reportError("Couldn't delete project"));
     const tab = event.target.closest("[data-tab]"); if (tab) { currentFindingTab = tab.dataset.tab; renderFindings(); refreshIcons(); }
-    const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick);
+    const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick).catch(reportError("Couldn't save review"));
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
-    const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome);
+    const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome).catch(reportError("Couldn't delete outcome"));
   });
 
   $("#outcomeForm").addEventListener("submit", (e) => { e.preventDefault(); submitOutcome(e.currentTarget); });
@@ -1015,7 +1063,8 @@ function wireInteractions() {
   $("#newProjectBtn").addEventListener("click", () => $("#projectModal").showModal());
   $("#newProjectBtnSecondary").addEventListener("click", () => $("#projectModal").showModal());
   $("#logoutBtn").addEventListener("click", async () => {
-    await saveCurrentProject("Saved before logout");
+    // Best-effort save — a failed autosave must never block logout itself.
+    try { await saveCurrentProject("Saved before logout"); } catch (error) { console.error(error); }
     try { await window.DD.api.auth.logout(); } catch { /* clear locally regardless */ }
     currentUser = null; currentProject = null; projects = [];
     // Stop Google from silently re-selecting the same account on the auth screen.
@@ -1030,10 +1079,10 @@ function wireInteractions() {
     if (!requireProject()) return;
     const body = $("#memoBody");
     if (body.dataset.projectId === currentProject.id) currentProject.memoHtml = body.innerHTML;
-    await saveCurrentProject("Manual save");
-    showToast("Project saved.");
+    try { await saveCurrentProject("Manual save"); showToast("Project saved."); }
+    catch (error) { reportError("Save failed")(error); }
   });
-  $("#projectSwitcher").addEventListener("change", (e) => { if (currentProject) openProject(e.target.value); });
+  $("#projectSwitcher").addEventListener("change", (e) => { if (currentProject) openProject(e.target.value).catch(reportError("Couldn't switch project")); });
   $("#themeToggle").addEventListener("click", () => {
     document.body.classList.toggle("dark");
     showToast(document.body.classList.contains("dark") ? "Dark mode enabled" : "Light mode enabled");
@@ -1082,6 +1131,7 @@ function wireInteractions() {
 
   // ---- Orchestrator ----
   $("#runOrchestrator").addEventListener("click", runOrchestrator);
+  $("#runRiskAgent").addEventListener("click", rebuildRiskRegister);
 
   // ---- Financial ----
   $("#financialStatementInput").addEventListener("input", (e) => { if (!currentProject) return; currentProject.financialInput = e.target.value; scheduleSave("Financial input edited"); });
@@ -1094,21 +1144,27 @@ function wireInteractions() {
   $("#financialFileInput").addEventListener("change", async (e) => {
     if (!requireProject()) return;
     const file = e.target.files[0]; if (!file) return;
-    const result = await window.DD.extract.extract(file);
-    currentProject.financialInput = result.fullText;
-    $("#financialStatementInput").value = result.fullText;
-    scheduleSave("Financial file loaded"); showToast("Financial file parsed. Run analysis.");
+    try {
+      const result = await window.DD.extract.extract(file);
+      currentProject.financialInput = result.fullText;
+      $("#financialStatementInput").value = result.fullText;
+      scheduleSave("Financial file loaded"); showToast("Financial file parsed. Run analysis.");
+    } catch (error) { reportError("Couldn't parse financial file")(error); }
   });
 
   // ---- Review modal ----
-  $("#reviewSave").addEventListener("click", (e) => { e.preventDefault(); saveReview(); $("#reviewModal").close(); });
+  $("#reviewSave").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try { await saveReview(); $("#reviewModal").close(); }
+    catch (error) { reportError("Couldn't save review")(error); }
+  });
 
   // ---- Memo / Reports ----
   // Stay on the memo page so its loading bar is visible while the orchestrator runs.
   $("#generateMemo").addEventListener("click", () => { runOrchestrator(); });
   $("#exportMemoPdf").addEventListener("click", () => doExport("exportPdf"));
   $("#exportMemoWord").addEventListener("click", () => doExport("exportWord"));
-  $("#memoBody").addEventListener("input", (e) => { if (!currentProject) return; currentProject.memoHtml = e.currentTarget.innerHTML; scheduleSave("Memo edited"); });
+  $("#memoBody").addEventListener("input", (e) => { if (!currentProject) return; currentProject.memoHtml = window.DD.util.sanitizeMemoHtml(e.currentTarget.innerHTML); scheduleSave("Memo edited"); });
 
   // ---- Settings ----
   $("#llmProvider").addEventListener("change", (e) => { const cfg = window.DD.llm.getConfig(); $("#llmModel").value = e.target.value === "openai" ? cfg.openaiModel : cfg.claudeModel; });

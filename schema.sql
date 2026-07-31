@@ -106,3 +106,13 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   tokens_out INTEGER NOT NULL DEFAULT 0,
   UNIQUE (user_id, day)
 );
+
+-- ----------------------------------------------------------- rate limits
+-- Generic abuse-throttling counters, keyed freely by the caller (e.g.
+-- "login:<email>" for failed-login lockout, "signup:<ip>" for signup throttling).
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key          TEXT PRIMARY KEY,
+  count        INTEGER NOT NULL DEFAULT 0,
+  window_start TEXT NOT NULL,
+  locked_until TEXT
+);

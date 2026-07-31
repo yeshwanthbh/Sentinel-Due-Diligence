@@ -35,15 +35,15 @@ export default {
       return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
     }
 
-    // CORS preflight (same-origin in prod, but permit credentialed dev origins).
-    if (request.method === "OPTIONS") return cors(request, new Response(null, { status: 204 }));
+    // CORS preflight (same-origin in prod; ALLOWED_ORIGINS also permits configured dev origins).
+    if (request.method === "OPTIONS") return cors(request, env, new Response(null, { status: 204 }));
 
     try {
       const res = await route(request, env, ctx, url);
-      return cors(request, res);
+      return cors(request, env, res);
     } catch (err) {
       console.error(err);
-      return cors(request, json({ error: err.message || "Internal error" }, err.status || 500));
+      return cors(request, env, json({ error: err.message || "Internal error" }, err.status || 500));
     }
   }
 };
@@ -113,6 +113,9 @@ async function signup(request, env) {
   if (!normEmail || !password || password.length < 6) {
     return json({ error: "Email and a password of at least 6 characters are required." }, 400);
   }
+  if (await checkSignupThrottle(env, clientIp(request))) {
+    return json({ error: "Too many accounts created from this network recently. Try again later." }, 429);
+  }
   const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(normEmail).first();
   if (existing) return json({ error: "An account with that email already exists." }, 409);
 
@@ -135,13 +138,21 @@ async function signup(request, env) {
 async function login(request, env) {
   const { email, password } = await readJson(request);
   const normEmail = normalizeEmail(email);
+  const lock = await checkLoginLock(env, normEmail);
+  if (lock.locked) {
+    return json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterMs / 60000)} minute(s).` }, 429);
+  }
   const row = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(normEmail).first();
-  if (!row) return json({ error: "No account found for that email." }, 401);
+  if (!row) { await recordLoginFailure(env, normEmail); return json({ error: "No account found for that email." }, 401); }
   if (!row.password_hash && row.provider === "google") {
     return json({ error: "This account uses Google sign-in. Use “Continue with Google”." }, 400);
   }
   const attempt = await hashPassword(password || "", row.salt);
-  if (!timingSafeEqual(attempt, row.password_hash)) return json({ error: "Incorrect password." }, 401);
+  if (!timingSafeEqual(attempt, row.password_hash)) {
+    await recordLoginFailure(env, normEmail);
+    return json({ error: "Incorrect password." }, 401);
+  }
+  await clearLoginFailures(env, normEmail);
 
   return withSession(env, row, json({ user: publicUser(row) }));
 }
@@ -171,7 +182,7 @@ async function googleAuth(request, env) {
   const { credential } = await readJson(request);
   if (!credential) return json({ error: "Missing Google credential." }, 400);
 
-  const resp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+  const resp = await fetchWithTimeout(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, {}, 10_000);
   if (!resp.ok) return json({ error: "Google token verification failed." }, 401);
   const claims = await resp.json();
 
@@ -227,6 +238,8 @@ async function createProject(request, env) {
   const user = await requireUser(request, env);
   const project = await readJson(request);
   if (!project || !project.name) return json({ error: "A project name is required." }, 400);
+  const sizeError = checkProjectSize(project);
+  if (sizeError) return json({ error: sizeError }, 413);
   const now = new Date().toISOString();
   project.id = project.id || uuid();
   project.ownerId = user.id;
@@ -241,11 +254,25 @@ async function saveProject(request, env, id) {
   const owned = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND owner_id = ?").bind(id, user.id).first();
   if (!owned) return json({ error: "Project not found." }, 404);
   const project = await readJson(request);
+  const sizeError = checkProjectSize(project);
+  if (sizeError) return json({ error: sizeError }, 413);
   project.id = id;
   project.ownerId = user.id;
   project.updatedAt = new Date().toISOString();
   await persistProject(env, user.id, project);
   return json({ project });
+}
+
+// Caps the persisted project blob so a buggy/malicious client can't inflate D1
+// storage without bound. Document bytes live in R2, not here, so a project's JSON
+// (findings, risks, memo, research, etc.) should stay well under this in practice.
+const MAX_PROJECT_JSON_BYTES = 8 * 1024 * 1024; // 8MB
+function checkProjectSize(project) {
+  const bytes = new TextEncoder().encode(JSON.stringify(project)).length;
+  if (bytes > MAX_PROJECT_JSON_BYTES) {
+    return `Project data is too large (${(bytes / 1024 / 1024).toFixed(1)}MB, max ${MAX_PROJECT_JSON_BYTES / 1024 / 1024}MB). Trim large fields (e.g. document text previews) before saving.`;
+  }
+  return null;
 }
 
 async function deleteProject(request, env, id) {
@@ -606,37 +633,56 @@ async function llmProxy(request, env) {
     return json({ error: `Daily analysis limit reached (${LLM_DAILY_LIMIT}). Try again tomorrow.` }, 429);
   }
 
-  let text;
+  let text, tokensIn, tokensOut;
   try {
-    text = provider === "openai"
+    const result = provider === "openai"
       ? await callOpenAI(system, userMsg, key, reqModel || "gpt-4o")
       : await callClaude(system, userMsg, key, reqModel || "claude-opus-4-8", maxTokens || 2000);
+    ({ text, tokensIn, tokensOut } = result);
   } catch (err) {
     return json({ error: err.message }, 502);
   }
 
   // Best-effort metering (never block the response on the counter write).
   await env.DB.prepare(
-    `INSERT INTO llm_usage (id, user_id, day, calls) VALUES (?,?,?,1)
-     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1`
-  ).bind(uuid(), user.id, day).run().catch(() => {});
+    `INSERT INTO llm_usage (id, user_id, day, calls, tokens_in, tokens_out) VALUES (?,?,?,1,?,?)
+     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1, tokens_in = tokens_in + excluded.tokens_in, tokens_out = tokens_out + excluded.tokens_out`
+  ).bind(uuid(), user.id, day, tokensIn || 0, tokensOut || 0).run().catch(() => {});
 
   return json({ text });
 }
 
+// A hung upstream call would otherwise hold the request open indefinitely (no
+// Workers-level timeout of its own) and leave the orchestrator UI spinning
+// forever. Shorter than the client's own request timeout so callers get a clean
+// "upstream timed out" error instead of a bare client-side abort.
+async function fetchWithTimeout(url, options, timeoutMs = 75_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error(`Upstream request to ${new URL(url).host} timed out after ${Math.round(timeoutMs / 1000)}s.`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callClaude(system, user, apiKey, model, maxTokens) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] })
   });
   if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  return (data.content || []).map((b) => b.text || "").join("");
+  const text = (data.content || []).map((b) => b.text || "").join("");
+  return { text, tokensIn: data.usage?.input_tokens || 0, tokensOut: data.usage?.output_tokens || 0 };
 }
 
 async function callOpenAI(system, user, apiKey, model) {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -646,7 +692,83 @@ async function callOpenAI(system, user, apiKey, model) {
   });
   if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+  return {
+    text: data.choices?.[0]?.message?.content || "",
+    tokensIn: data.usage?.prompt_tokens || 0,
+    tokensOut: data.usage?.completion_tokens || 0
+  };
+}
+
+/* ---------------------------------------------------------- rate limits */
+// Brute-force protection: lock an email out after repeated failed logins, and
+// throttle signups per IP. Best-effort (small race window under concurrent
+// requests is acceptable for abuse deterrence, not a hard security boundary).
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const SIGNUP_MAX_PER_WINDOW = 5;
+const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
+
+function clientIp(request) {
+  return request.headers.get("CF-Connecting-IP") || "unknown";
+}
+
+// ---- pure decision logic (no I/O) — unit-testable without a D1 mock ----
+function isLoginLocked(row, now = Date.now()) {
+  if (row?.locked_until && new Date(row.locked_until).getTime() > now) {
+    return { locked: true, retryAfterMs: new Date(row.locked_until).getTime() - now };
+  }
+  return { locked: false };
+}
+
+function nextLoginFailureState(row, now = Date.now()) {
+  const inWindow = row && (now - new Date(row.window_start).getTime()) < LOGIN_WINDOW_MS;
+  const count = (inWindow ? row.count : 0) + 1;
+  const windowStart = inWindow ? row.window_start : new Date(now).toISOString();
+  const lockedUntil = count >= LOGIN_MAX_ATTEMPTS ? new Date(now + LOGIN_LOCKOUT_MS).toISOString() : null;
+  return { count, windowStart, lockedUntil };
+}
+
+// Returns { throttled, next } — next is null when already throttled (no write needed).
+function nextSignupThrottleState(row, now = Date.now()) {
+  const inWindow = row && (now - new Date(row.window_start).getTime()) < SIGNUP_WINDOW_MS;
+  if (inWindow && row.count >= SIGNUP_MAX_PER_WINDOW) return { throttled: true, next: null };
+  const count = (inWindow ? row.count : 0) + 1;
+  const windowStart = inWindow ? row.window_start : new Date(now).toISOString();
+  return { throttled: false, next: { count, windowStart } };
+}
+
+// ---- I/O wrappers ----
+async function checkLoginLock(env, email) {
+  const row = await env.DB.prepare("SELECT * FROM rate_limits WHERE key = ?").bind(`login:${email}`).first();
+  return isLoginLocked(row);
+}
+
+async function recordLoginFailure(env, email) {
+  const key = `login:${email}`;
+  const row = await env.DB.prepare("SELECT * FROM rate_limits WHERE key = ?").bind(key).first();
+  const { count, windowStart, lockedUntil } = nextLoginFailureState(row);
+  await env.DB.prepare(
+    `INSERT INTO rate_limits (key, count, window_start, locked_until) VALUES (?,?,?,?)
+     ON CONFLICT(key) DO UPDATE SET count=excluded.count, window_start=excluded.window_start, locked_until=excluded.locked_until`
+  ).bind(key, count, windowStart, lockedUntil).run();
+}
+
+async function clearLoginFailures(env, email) {
+  await env.DB.prepare("DELETE FROM rate_limits WHERE key = ?").bind(`login:${email}`).run();
+}
+
+// Returns true if this IP has hit the signup cap for the current window.
+async function checkSignupThrottle(env, ip) {
+  const key = `signup:${ip}`;
+  const row = await env.DB.prepare("SELECT * FROM rate_limits WHERE key = ?").bind(key).first();
+  const { throttled, next } = nextSignupThrottleState(row);
+  if (throttled) return true;
+  await env.DB.prepare(
+    `INSERT INTO rate_limits (key, count, window_start, locked_until) VALUES (?,?,?,NULL)
+     ON CONFLICT(key) DO UPDATE SET count=excluded.count, window_start=excluded.window_start, locked_until=NULL`
+  ).bind(key, next.count, next.windowStart).run();
+  return false;
 }
 
 /* ------------------------------------------------------- session helpers */
@@ -736,9 +858,14 @@ function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 }
 
-function cors(request, res) {
+// Same-origin requests (the normal frontend, served from this same Worker) aren't
+// subject to CORS at all — this only governs cross-origin callers. Reflecting any
+// Origin with credentials:true was an unnecessarily permissive default; pin to an
+// explicit allow-list (ALLOWED_ORIGINS, comma-separated) instead.
+function cors(request, env, res) {
   const origin = request.headers.get("Origin");
-  if (origin) {
+  const allowed = String(env.ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
+  if (origin && allowed.includes(origin)) {
     res.headers.set("Access-Control-Allow-Origin", origin);
     res.headers.set("Access-Control-Allow-Credentials", "true");
     res.headers.set("Vary", "Origin");
@@ -748,5 +875,10 @@ function cors(request, res) {
   return res;
 }
 
-// Exported for later phases (projects/outcomes/documents) so they can gate on auth.
-export { currentUser };
+// Exported for later phases (projects/outcomes/documents) so they can gate on auth,
+// and for unit tests (test/worker-auth.test.js) to exercise the pure crypto/rate-limit
+// logic directly without mocking D1.
+export {
+  currentUser, hashPassword, timingSafeEqual, sha256Hex, normalizeEmail,
+  isLoginLocked, nextLoginFailureState, nextSignupThrottleState, checkProjectSize
+};
