@@ -214,7 +214,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     },
 
     financial(project, agent, output) {
-      const input = project.financialInput || financialTextFromDocs(project);
+      const input = financialTextFromDocs(project);
       const parsed = H().parseFinancials(input);
       // Deterministic math is the source of truth for metrics/anomalies; the
       // model's numbers are used only if it didn't return its own.

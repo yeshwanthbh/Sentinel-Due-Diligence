@@ -213,7 +213,6 @@ function newProjectRecord({ company, industry, type, team, value, close }, owner
     riskRegister: overrides.riskRegister || null,
     risks: overrides.risks || {},
     recommendation: overrides.recommendation || null,
-    financialInput: overrides.financialInput || "",
     memoHtml: overrides.memoHtml || "<h2>Executive Summary</h2><p>Upload documents and run the AI agents to draft this memorandum.</p>",
     agentRuns: overrides.agentRuns || {},
     reviewLog: overrides.reviewLog || [],
@@ -563,14 +562,12 @@ async function rebuildRiskRegister() {
 /* ---- Financial page ---- */
 function renderFinancial() {
   const fin = currentProject.financial;
-  $("#financialStatementInput").value = currentProject.financialInput || "";
-  $("#financialSourceBadge").textContent = fin ? "AI-generated" : "No data";
   $("#financialChecklist").innerHTML = ["Revenue", "Margins", "Working capital", "Debt & leverage", "Cash flow", "Valuation support", "Anomaly detection"]
     .map((w) => `<label class="check-row"><span class="check-dot ${fin ? "on" : ""}"></span>${w}</label>`).join("");
 
   $("#financialMetricGrid").innerHTML = (fin?.metrics || []).map((m) => `
     <article class="metric-card"><span>${escapeHtml(m.label)}</span><strong>${escapeHtml(String(m.value))}</strong><small>${escapeHtml(m.hint || "")}</small></article>`).join("")
-    || `<p class="muted">Load or paste financial statement rows and run the analysis to compute metrics.</p>`;
+    || `<p class="muted">Upload a Financial-category document in the Data Room, then run the analysis to compute metrics.</p>`;
 
   $("#financialTrendTable").innerHTML = (fin?.anomalies || []).map((a) => `
     <div class="file-row"><span class="status-badge ${a.severity === "High" ? "danger" : a.severity === "Medium" ? "warning" : "info"}">${a.severity}</span><span>${escapeHtml(a.text)}</span></div>`).join("")
@@ -836,8 +833,7 @@ function renderEmptyWorkspace() {
   const body = $("#memoBody"); body.innerHTML = muted("Create a project to draft a memo."); body.dataset.projectId = "";
   $("#financialMetricGrid").innerHTML = muted("No project selected.");
   $("#financialTrendTable").innerHTML = ""; $("#valuationPanel").innerHTML = "";
-  $("#financialChecklist").innerHTML = ""; $("#financialStatementInput").value = "";
-  $("#financialSourceBadge").textContent = "No data";
+  $("#financialChecklist").innerHTML = "";
   $("#comparableDeals").innerHTML = muted("Create a project to see comparable past deals.");
   $("#learningStats").innerHTML = ""; $("#outcomeList").innerHTML = muted("No project selected.");
   renderSettings();
@@ -1080,25 +1076,6 @@ function wireInteractions() {
   // ---- Orchestrator ----
   $("#runOrchestrator").addEventListener("click", runOrchestrator);
   $("#runRiskAgent").addEventListener("click", rebuildRiskRegister);
-
-  // ---- Financial ----
-  $("#financialStatementInput").addEventListener("input", (e) => { if (!currentProject) return; currentProject.financialInput = e.target.value; scheduleSave("Financial input edited"); });
-  $("#loadSampleFinancials").addEventListener("click", () => {
-    if (!requireProject()) return;
-    currentProject.financialInput = "Metric, FY2023, FY2024, FY2025\nRevenue, 82, 118, 145\nCOGS, 33, 45, 54\nGross Profit, 49, 73, 91\nEBITDA, 9, 17, 26\nNet Income, 2, 7, 13\nCash, 14, 19, 22\nDebt, 30, 34, 40\nCurrent Assets, 40, 52, 63\nCurrent Liabilities, 22, 26, 29";
-    $("#financialStatementInput").value = currentProject.financialInput;
-    scheduleSave("Sample financials loaded"); showToast("Sample financials loaded. Run analysis.");
-  });
-  $("#financialFileInput").addEventListener("change", async (e) => {
-    if (!requireProject()) return;
-    const file = e.target.files[0]; if (!file) return;
-    try {
-      const result = await window.DD.extract.extract(file);
-      currentProject.financialInput = result.fullText;
-      $("#financialStatementInput").value = result.fullText;
-      scheduleSave("Financial file loaded"); showToast("Financial file parsed. Run analysis.");
-    } catch (error) { reportError("Couldn't parse financial file")(error); }
-  });
 
   // ---- Review modal ----
   $("#reviewSave").addEventListener("click", async (e) => {

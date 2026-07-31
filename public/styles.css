@@ -1302,17 +1302,6 @@ h3 {
 .check-dot.on { background: var(--success); border-color: var(--success); }
 
 /* financial workspace (Analysis page) */
-.financial-workspace { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr); gap: 14px; margin: 16px 0 14px; }
-.financial-input-panel { display: grid; gap: 12px; align-content: start; }
-.financial-file-drop {
-  display: flex; align-items: center; gap: 10px; cursor: pointer;
-  border: 1px dashed var(--line); border-radius: var(--radius);
-  padding: 14px; color: var(--muted); font-size: 13px;
-}
-.financial-file-drop:hover { border-color: var(--primary); }
-.financial-file-drop input { display: none; }
-.financial-file-drop > svg, .financial-file-drop i { color: var(--primary); flex-shrink: 0; }
-.financial-textarea textarea { min-height: 140px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; resize: vertical; }
 .financial-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 14px; }
 .financial-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .financial-table { display: grid; gap: 8px; }
@@ -1362,7 +1351,6 @@ h3 {
 
 @media (max-width: 900px) {
   .research-grid,
-  .financial-workspace,
   .financial-analysis-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: span 1; }
   .rec-pill { flex-direction: column; align-items: flex-start; }

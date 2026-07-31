@@ -177,25 +177,12 @@
           <div id="orchestratorProgress"></div>
 
           <div class="panel-head" style="margin-top:26px;">
-            <div><span class="eyebrow">Financial Specialist</span><h2>Financial statement intake &amp; output</h2></div>
-            <button class="secondary-button" id="loadSampleFinancials" type="button"><i data-lucide="table"></i>Load Sample</button>
+            <div><span class="eyebrow">Financial Specialist</span><h2>Financial statement output</h2></div>
           </div>
-          <div class="financial-workspace">
-            <article class="panel financial-input-panel">
-              <div class="panel-head"><div><span class="eyebrow">Statement Intake</span><h2>Upload or paste financial statement data</h2></div><span class="status-badge info" id="financialSourceBadge">No data</span></div>
-              <label class="financial-file-drop" for="financialFileInput">
-                <input id="financialFileInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls" />
-                <i data-lucide="file-spreadsheet"></i>
-                <span>CSV, TSV, XLSX, or copied spreadsheet export</span>
-              </label>
-              <label class="field financial-textarea"><span>Financial statement rows</span><textarea id="financialStatementInput" spellcheck="false" placeholder="Revenue, 100, 120, 145&#10;COGS, 40, 46, 52&#10;EBITDA, 12, 18, 24"></textarea></label>
-              <p class="muted" style="font-size:12px;">Pasted or uploaded here before "Start Analysis" — this feeds the Financial agent alongside any Financial-category documents in the Data Room.</p>
-            </article>
-            <article class="panel">
-              <div class="panel-head"><div><span class="eyebrow">Agent Coverage</span><h2>Workstreams analyzed</h2></div></div>
-              <div class="agent-checklist" id="financialChecklist"></div>
-            </article>
-          </div>
+          <article class="panel">
+            <div class="panel-head"><div><span class="eyebrow">Agent Coverage</span><h2>Workstreams analyzed</h2></div></div>
+            <div class="agent-checklist" id="financialChecklist"></div>
+          </article>
           <div class="financial-metric-grid" id="financialMetricGrid"></div>
           <div class="financial-analysis-grid">
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">Anomaly Detection</span><h2>Flags &amp; irregularities</h2></div></div><div class="financial-table" id="financialTrendTable"></div></article>
