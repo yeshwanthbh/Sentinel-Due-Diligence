@@ -274,12 +274,12 @@ function renderDashboard() {
   const cards = document.querySelectorAll("#dashboard .metric-card");
   const totalDocs = projects.reduce((s, p) => s + (p.documents?.length || 0), 0);
   const totalFindings = projects.reduce((s, p) => s + countFindings(p), 0);
-  const openFindings = projects.reduce((s, p) => s + countFindings(p, (f) => f.status !== "Approved" && f.status !== "Rejected"), 0);
+  const highSeverityFindings = projects.reduce((s, p) => s + countFindings(p, (f) => f.severity === "High"), 0);
   const values = [
     [projects.length, "Saved diligence projects"],
     [totalDocs, "Documents processed"],
     [totalFindings, "Findings logged"],
-    [openFindings, "Findings awaiting review"]
+    [highSeverityFindings, "High-severity findings"]
   ];
   cards.forEach((card, i) => { card.querySelector("strong").textContent = values[i][0]; card.querySelector("small").textContent = values[i][1]; });
 
@@ -600,7 +600,7 @@ function renderResearch() {
 /* ---- Findings ---- */
 function findingCard(f, bucket) {
   const sev = `severity-${f.severity.toLowerCase()}`;
-  const statusClass = f.status === "Approved" ? "success" : f.status === "Rejected" ? "danger" : f.status === "Edited" ? "info" : "warning";
+  const statusClass = f.status === "Edited" ? "info" : f.status === "Commented" ? "info" : "warning";
   return `<article class="finding-card">
     <div class="finding-card-top">
       <div><h2>${escapeHtml(f.title)}</h2><p class="muted">${escapeHtml(f.summary)}</p></div>
@@ -612,8 +612,6 @@ function findingCard(f, bucket) {
       <span>${escapeHtml(f.agent || "")}</span>
     </div>
     <div class="finding-actions">
-      <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-quick="Approved">${icon("check")}Approve</button>
-      <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-quick="Rejected">${icon("x")}Reject</button>
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Edited">${icon("pencil")}Edit</button>
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Commented">${icon("message-square")}Comment</button>
       <button class="ghost-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="History">${icon("history")}History</button>
@@ -622,13 +620,8 @@ function findingCard(f, bucket) {
   </article>`;
 }
 
-// A finding is "resolved" once approved or rejected — it leaves the review queue.
-function isResolvedFinding(f) {
-  return f.status === "Approved" || f.status === "Rejected";
-}
-
-// Composes a short narrative from a workstream's own open findings — never
-// invents anything beyond concatenating counts and the findings' own text.
+// Composes a short narrative from a workstream's findings — never invents
+// anything beyond concatenating counts and the findings' own text.
 function summarizeWorkstream(findings) {
   const counts = { High: 0, Medium: 0, Low: 0 };
   findings.forEach((f) => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
@@ -640,11 +633,8 @@ function summarizeWorkstream(findings) {
 
 /* ---- Analysis Workspace: executive summary dashboard (findings + risks) ---- */
 function renderAnalysisWorkspace() {
-  const openFor = (t) => currentProject.findings[t].filter((f) => !isResolvedFinding(f));
-  const allBuckets = Object.keys(currentProject.findings);
-  const bucketsWithOpen = allBuckets.filter((t) => openFor(t).length);
+  const allBuckets = Object.keys(currentProject.findings).filter((t) => currentProject.findings[t].length);
   const totalFindings = allBuckets.reduce((n, t) => n + currentProject.findings[t].length, 0);
-  const openFindings = allBuckets.reduce((n, t) => n + openFor(t).length, 0);
   const reg = currentProject.riskRegister;
   const risks = reg?.risks || [];
   const critical = risks.filter((r) => r.severity === "Critical").length;
@@ -652,23 +642,22 @@ function renderAnalysisWorkspace() {
 
   $("#workspaceStats").innerHTML = [
     [totalFindings, "Total findings"],
-    [openFindings, "Needs review"],
     [critical, "Critical risks"],
     [high, "High risks"]
   ].map(([v, l]) => `<article class="metric-card"><span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong></article>`).join("");
 
-  $("#workstreamSummaryList").innerHTML = bucketsWithOpen.length ? bucketsWithOpen.map((bucket) => {
-    const open = openFor(bucket);
+  $("#workstreamSummaryList").innerHTML = allBuckets.length ? allBuckets.map((bucket) => {
+    const findings = currentProject.findings[bucket];
     const isOpen = expandedWorkstreams.has(bucket);
     return `<article class="panel workstream-summary">
-      <div class="panel-head"><div><span class="eyebrow">${escapeHtml(bucket)}</span><h2>${open.length} finding${open.length === 1 ? "" : "s"} to review</h2></div></div>
-      <p class="muted">${escapeHtml(summarizeWorkstream(open))}</p>
+      <div class="panel-head"><div><span class="eyebrow">${escapeHtml(bucket)}</span><h2>${findings.length} finding${findings.length === 1 ? "" : "s"}</h2></div></div>
+      <p class="muted">${escapeHtml(summarizeWorkstream(findings))}</p>
       <details class="collapsible" data-workstream="${escapeHtml(bucket)}" ${isOpen ? "open" : ""}>
-        <summary>${isOpen ? "Hide" : "Review"} ${open.length} item${open.length === 1 ? "" : "s"}</summary>
-        <div class="collapsible-body"><div class="finding-list">${open.map((f) => findingCard(f, bucket)).join("")}</div></div>
+        <summary>${isOpen ? "Hide" : "Show"} ${findings.length} item${findings.length === 1 ? "" : "s"}</summary>
+        <div class="collapsible-body"><div class="finding-list">${findings.map((f) => findingCard(f, bucket)).join("")}</div></div>
       </details>
     </article>`;
-  }).join("") : `<p class="muted">${totalFindings ? "All findings reviewed. Approved and rejected findings are archived — see the review log or exports for the full record." : "No findings yet. Upload documents and run the agents."}</p>`;
+  }).join("") : `<p class="muted">No findings yet. Upload documents and run the agents.</p>`;
 
   $("#riskNarrative").textContent = reg ? reg.overallProfile : "Run the Risk Assessment Agent to build the register.";
   const grouped = currentProject.risks && Object.keys(currentProject.risks).length ? currentProject.risks : { Critical: [], High: [], Medium: [], Low: [] };
@@ -896,13 +885,6 @@ async function saveReview() {
   showToast(`Finding ${kind.toLowerCase()}. Version recorded.`);
 }
 
-async function quickReview(findingId, action) {
-  window.DD.review.act(currentProject, findingId, action, { user: currentUser.name });
-  await saveCurrentProject(`Finding ${action.toLowerCase()} by ${currentUser.name}`);
-  renderProjectSurfaces();
-  showToast(`Finding ${action.toLowerCase()}.`);
-}
-
 /* --------------------------------------------------------------- exports */
 function doExport(fn) {
   if (!requireProject()) return;
@@ -967,7 +949,6 @@ function wireInteractions() {
     const nav = event.target.closest("[data-target]"); if (nav) showPage(nav.dataset.target);
     const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject).catch(reportError("Couldn't open project"));
     const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject).catch(reportError("Couldn't delete project"));
-    const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick).catch(reportError("Couldn't save review"));
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
     const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome).catch(reportError("Couldn't delete outcome"));

@@ -1,11 +1,11 @@
 /* Sentinel DD — Human Review Layer (Phase 14)
- * Approve / reject / edit / comment on any AI finding, with full version history
- * and a reviewer action log. */
+ * Edit / comment on any AI finding, with full version history and a
+ * reviewer action log. */
 (function () {
   const DD = (window.DD = window.DD || {});
 
   const STATUS_BY_ACTION = {
-    Approved: "Approved", Rejected: "Rejected", Edited: "Edited", Commented: "Commented", Reopened: "Needs Review"
+    Edited: "Edited", Commented: "Commented"
   };
 
   function findFinding(project, findingId) {
