@@ -483,22 +483,24 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     ];
   }
 
+  // Deal type (VC/PE/M&A) is passed to the agents as context to tune analysis —
+  // it does not gate this decision on a per-deal-type document checklist. The
+  // only "insufficient information" signal is simply how much has been uploaded.
   function heuristicRecommendation(project) {
     const risks = project.riskRegister?.risks || [];
     const critical = risks.filter((r) => r.severity === "Critical").length;
     const high = risks.filter((r) => r.severity === "High").length;
-    const missing = (project.documents || []).length;
-    const coverage = DD.classify.missingCategories(project.documents || [], project.type || project.workflow);
-    const insufficient = missing < 2 || coverage.length > 3;
+    const documentCount = (project.documents || []).length;
+    const insufficient = documentCount < 2;
     let decision, confidence, rationale;
     if (critical >= 1 && high >= 2) { decision = "Do Not Invest"; confidence = 78; rationale = "Multiple critical/high risks outweigh the thesis at current terms."; }
-    else if (insufficient) { decision = "Continue Due Diligence"; confidence = 64; rationale = `Document coverage is thin (${coverage.length} missing categories). Gather more before deciding.`; }
+    else if (insufficient) { decision = "Continue Due Diligence"; confidence = 64; rationale = `Only ${documentCount} document(s) uploaded so far — gather more before deciding.`; }
     else if (critical >= 1 || high >= 1) { decision = "Invest with Conditions"; confidence = 72; rationale = "Thesis is supportable subject to remediation of the highest-severity risks."; }
-    else { decision = "Invest"; confidence = 80; rationale = "No critical risks identified and document coverage is adequate."; }
+    else { decision = "Invest"; confidence = 80; rationale = "No critical risks identified and the available documentation supports the thesis."; }
     return {
       decision, confidence, rationale,
       conditions: risks.filter((r) => ["Critical", "High"].includes(r.severity)).slice(0, 4).map((r) => `Resolve: ${r.title}`),
-      unresolved: coverage.map((c) => `Missing ${c.category} documentation`)
+      unresolved: []
     };
   }
 

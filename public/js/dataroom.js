@@ -95,10 +95,7 @@
         project.documents.unshift(record); added.push(record);
       }
     }
-    // refresh coverage snapshot for the Data Room panel
-    project.coverage = DD.classify.coverage(project.documents, project.type || project.workflow)
-      .map((c) => [`${c.category}`, c.pct, c.state]);
-    return { added, skipped, missing: DD.classify.missingCategories(project.documents, project.type || project.workflow) };
+    return { added, skipped };
   }
 
   function inventory(project, { search = "", category = "all" } = {}) {

@@ -134,24 +134,17 @@
               <button class="primary-button" id="uploadDocuments" type="button"><i data-lucide="upload"></i>Upload Files</button>
             </div>
           </div>
-          <div class="data-room-layout">
-            <article class="upload-zone" id="uploadZone">
-              <input id="documentInput" class="file-input" type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,.csv,.zip,.txt,.tsv" />
-              <input id="folderInput" class="file-input" type="file" webkitdirectory directory multiple />
-              <i data-lucide="cloud-upload"></i>
-              <h2 id="uploadZoneTitle">Drop documents or a folder here</h2>
-              <p>PDF, DOCX, XLSX, PPTX, CSV, ZIP. Drop an entire folder and every file inside is ingested. Text is extracted (OCR when needed), files are deduplicated, categorized, and mapped to your workflow automatically.</p>
-              <div class="button-row">
-                <button class="secondary-button" id="browseDocuments" type="button"><i data-lucide="file"></i>Browse Files</button>
-                <button class="secondary-button" id="browseFolder" type="button"><i data-lucide="folder-open"></i>Browse Folder</button>
-              </div>
-            </article>
-            <article class="panel">
-              <div class="panel-head"><div><span class="eyebrow">Workflow Coverage</span><h2 id="coverageHeading">Document coverage</h2></div></div>
-              <div class="coverage-list" id="coverageList"></div>
-              <div class="missing-inline" id="missingInline"></div>
-            </article>
-          </div>
+          <article class="upload-zone" id="uploadZone">
+            <input id="documentInput" class="file-input" type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,.csv,.zip,.txt,.tsv" />
+            <input id="folderInput" class="file-input" type="file" webkitdirectory directory multiple />
+            <i data-lucide="cloud-upload"></i>
+            <h2 id="uploadZoneTitle">Drop documents or a folder here</h2>
+            <p>PDF, DOCX, XLSX, PPTX, CSV, ZIP. Drop an entire folder and every file inside is ingested. Text is extracted (OCR when needed), files are deduplicated and categorized automatically.</p>
+            <div class="button-row">
+              <button class="secondary-button" id="browseDocuments" type="button"><i data-lucide="file"></i>Browse Files</button>
+              <button class="secondary-button" id="browseFolder" type="button"><i data-lucide="folder-open"></i>Browse Folder</button>
+            </div>
+          </article>
           <article class="panel upload-progress-panel" id="uploadProgressPanel">
             <div class="panel-head">
               <div><span class="eyebrow">Secure Intake</span><h2>Upload progress</h2></div>
@@ -221,22 +214,16 @@
 
         <!-- ANALYSIS WORKSPACE (Findings + Missing + Risks) -->
         <section class="page" id="analysis-workspace">
-          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings, gaps &amp; risk in one place</h1></div></div>
+          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings &amp; risk in one place</h1></div></div>
           <p class="disclaimer-note"><i data-lucide="alert-triangle"></i>AI-generated findings, severities, and confidence scores. Review and verify each item before relying on it — do not treat this as a substitute for a qualified human analyst's sign-off.</p>
           <div class="tabs workspace-tabs" id="workspaceTabs">
             <button class="tab-button active" data-subtab="findings-pane"><i data-lucide="list-checks"></i>Findings</button>
-            <button class="tab-button" data-subtab="missing-pane"><i data-lucide="circle-help"></i>Missing Info</button>
             <button class="tab-button" data-subtab="risks-pane"><i data-lucide="shield-alert"></i>Risks</button>
           </div>
 
           <div class="workspace-pane active" id="findings-pane" data-pane="findings-pane">
             <div class="tabs" id="findingTabs"></div>
             <div class="finding-list" id="findingList"></div>
-          </div>
-
-          <div class="workspace-pane" id="missing-pane" data-pane="missing-pane">
-            <div class="panel-head"><div><span class="eyebrow">Request List</span><h2>Missing information center</h2></div></div>
-            <div class="missing-grid" id="missingGrid"></div>
           </div>
 
           <div class="workspace-pane" id="risks-pane" data-pane="risks-pane">

@@ -1,4 +1,7 @@
-/* Sentinel DD — document classification & workflow coverage (Phase 3) */
+/* Sentinel DD — document classification (Phase 3)
+ * Deal type (VC/PE/M&A) is a signal passed to the AI agents to tune their
+ * analysis — it does not gate or checklist which document categories must be
+ * present; a project is never required to have "everything." */
 (function () {
   const DD = (window.DD = window.DD || {});
 
@@ -13,13 +16,6 @@
     { category: "HR", keywords: ["employee", "compensation", "payroll", "benefits", "equity plan", "option pool", "severance", "employment agreement"], docType: "HR / people" },
     { category: "Corporate", keywords: ["board", "cap table", "articles of incorporation", "bylaws", "minutes", "shareholder", "governance", "certificate of incorporation"], docType: "Corporate / governance" }
   ];
-
-  // Which categories each deal type expects to see in the data room.
-  const DEAL_TYPE_REQUIREMENTS = {
-    "VC": ["Financial", "Commercial", "Technology", "Corporate"],
-    "PE": ["Financial", "Legal", "Commercial", "Operational", "Technology", "Tax", "Corporate"],
-    "M&A": ["Financial", "Legal", "Commercial", "Operational", "Technology", "Tax", "HR", "Corporate"]
-  };
 
   function scoreCategory(name, text) {
     const haystack = `${name}\n${text}`.toLowerCase();
@@ -47,25 +43,5 @@
     return { category, docType, confidence };
   }
 
-  function requiredCategories(dealType) {
-    return DEAL_TYPE_REQUIREMENTS[dealType] || DEAL_TYPE_REQUIREMENTS["VC"];
-  }
-
-  function coverage(documents, dealType) {
-    const required = requiredCategories(dealType);
-    const counts = {};
-    documents.forEach((doc) => { counts[doc.category] = (counts[doc.category] || 0) + 1; });
-    return required.map((category) => {
-      const count = counts[category] || 0;
-      const pct = count === 0 ? 0 : Math.min(100, 40 + count * 20);
-      const state = count === 0 ? "danger" : count < 2 ? "warning" : "success";
-      return { category, count, pct, state };
-    });
-  }
-
-  function missingCategories(documents, dealType) {
-    return coverage(documents, dealType).filter((entry) => entry.count === 0).map((entry) => entry.category);
-  }
-
-  DD.classify = { classify, coverage, missingCategories, requiredCategories, categories: TAXONOMY.map((t) => t.category) };
+  DD.classify = { classify, categories: TAXONOMY.map((t) => t.category) };
 })();

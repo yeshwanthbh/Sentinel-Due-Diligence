@@ -651,7 +651,6 @@ h3 {
 
 .agent-stack,
 .notification-list,
-.coverage-list,
 .report-strip,
 .finding-list {
   display: grid;
@@ -661,9 +660,7 @@ h3 {
 .agent-mini,
 .notification-item,
 .report-card,
-.coverage-item,
 .finding-card,
-.missing-card,
 .risk-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -677,7 +674,6 @@ h3 {
 }
 
 .agent-mini-top,
-.coverage-item,
 .finding-card-top {
   display: flex;
   align-items: center;
@@ -749,7 +745,6 @@ h3 {
   margin: 8px 0 12px;
 }
 
-.data-room-layout,
 .settings-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(310px, 0.75fr);
@@ -955,15 +950,10 @@ h3 {
   background: color-mix(in srgb, var(--warning) 12%, var(--surface));
 }
 
-.missing-grid,
 .reports-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(230px, 1fr));
   gap: 14px;
-}
-
-.missing-card {
-  min-height: 150px;
 }
 
 .risk-columns {
@@ -1153,13 +1143,11 @@ h3 {
 
   .metric-grid,
   .agent-grid,
-  .missing-grid,
   .reports-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dashboard-grid,
-  .data-room-layout,
   .settings-grid {
     grid-template-columns: 1fr;
   }
@@ -1223,7 +1211,6 @@ h3 {
   .metric-grid,
   .report-strip,
   .agent-grid,
-  .missing-grid,
   .reports-grid {
     grid-template-columns: 1fr;
   }
@@ -1253,9 +1240,6 @@ h3 {
 }
 .chip.danger { background: rgba(180, 35, 24, 0.1); color: var(--danger); border-color: transparent; }
 .chip.success { background: rgba(23, 132, 91, 0.12); color: var(--success); border-color: transparent; }
-
-.missing-inline { margin-top: 14px; }
-.missing-chip-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 .inline-error { color: var(--danger); font-weight: 600; font-size: 13px; word-break: break-word; }
 

@@ -204,7 +204,6 @@ function newProjectRecord({ company, industry, type, team, value, close }, owner
     team: team || "Unassigned", value: value || "Not provided", close: close || "TBD",
     createdAt: now, updatedAt: now,
     documents: overrides.documents || [],
-    coverage: overrides.coverage || [],
     findings: overrides.findings || {},
     research: overrides.research || null,
     financial: overrides.financial || null,
@@ -319,7 +318,6 @@ function renderSidebar() {
   $("#sidebarProjectProgress").style.width = `${currentProject.progress}%`;
   $("#dataRoomTitle").textContent = `${currentProject.name} — data room`;
   $("#uploadZoneTitle").textContent = `Drop documents for ${currentProject.name}`;
-  $("#coverageHeading").textContent = `${currentProject.type} coverage`;
 }
 
 function renderProjectsPage() {
@@ -341,18 +339,6 @@ function renderProjectsPage() {
 function renderDataRoom() {
   if (!currentProject) return;
   const project = currentProject;
-  const coverage = window.DD.classify.coverage(project.documents || [], project.dealType || "VC");
-  $("#coverageList").innerHTML = coverage.map((c) => `
-    <div class="coverage-item">
-      <div><strong>${escapeHtml(c.category)}</strong><div class="progress-track"><span style="width:${c.pct}%"></span></div></div>
-      <span class="status-badge ${c.state}">${c.count} file${c.count === 1 ? "" : "s"}</span>
-    </div>`).join("");
-
-  const missing = window.DD.classify.missingCategories(project.documents || [], project.dealType || "VC");
-  $("#missingInline").innerHTML = missing.length
-    ? `<div class="missing-chip-row"><span class="eyebrow">Missing for ${project.dealType || "VC"}</span>${missing.map((m) => `<span class="chip danger">${escapeHtml(m)}</span>`).join("")}</div>`
-    : `<div class="missing-chip-row"><span class="chip success">All required categories present</span></div>`;
-
   const cats = ["all", ...window.DD.classify.categories, "Uncategorized"];
   const filter = $("#categoryFilter");
   const currentCat = filter.value || "all";
@@ -431,7 +417,6 @@ async function handleUpload(files) {
     renderProjectSurfaces();
     let msg = `${result.added.length} document(s) processed, categorized, and stored.`;
     if (result.skipped.length) msg += ` ${result.skipped.length} skipped.`;
-    if (result.missing.length) msg += ` Missing: ${result.missing.join(", ")}.`;
     showToast(msg);
   } catch (error) {
     console.error(error);
@@ -716,22 +701,7 @@ function renderFindings() {
   $("#findingList").innerHTML = openFor(currentFindingTab).map((f) => findingCard(f, currentFindingTab)).join("");
 }
 
-/* ---- Missing / Risks / Memo / Reports ---- */
-function renderMissing() {
-  const coverage = window.DD.classify.coverage(currentProject.documents || [], currentProject.type);
-  const missing = coverage.filter((c) => c.count === 0);
-  const cards = [];
-  missing.forEach((c) => cards.push(["Missing category", `No ${c.category} documents uploaded for a ${currentProject.type} workflow.`, "Critical"]));
-  (currentProject.recommendation?.unresolved || []).forEach((u) => cards.push(["Unresolved item", u, "High"]));
-  Object.values(currentProject.findings).flat().filter((f) => f.status === "Needs Review").slice(0, 6)
-    .forEach((f) => cards.push(["Awaiting review", f.title, f.severity]));
-  $("#missingGrid").innerHTML = cards.length ? cards.map(([tag, text, sev]) => `
-    <article class="missing-card">
-      <span class="status-badge ${sev === "Critical" ? "danger" : sev === "High" ? "warning" : "info"}">${escapeHtml(sev)}</span>
-      <h2>${escapeHtml(tag)}</h2><p class="muted">${escapeHtml(text)}</p>
-    </article>`).join("") : `<p class="muted">No outstanding gaps detected.</p>`;
-}
-
+/* ---- Risks / Memo / Reports ---- */
 function renderRisks() {
   const reg = currentProject.riskRegister;
   $("#riskProfile").innerHTML = reg ? `<p><strong>Overall profile:</strong> ${escapeHtml(reg.overallProfile || "")} <span class="muted">(${reg.source} engine)</span></p>` : `<p class="muted">Run the Risk Assessment Agent to build the register.</p>`;
@@ -886,12 +856,10 @@ function renderEmptyWorkspace() {
   $("#sidebarProjectMeta").textContent = "Create a project to begin.";
   $("#sidebarProjectProgress").style.width = "0%";
   $("#fileTable").innerHTML = muted("Create a project, then upload documents.");
-  $("#coverageList").innerHTML = ""; $("#missingInline").innerHTML = "";
   $("#processingSummary").textContent = "0 documents";
   $("#agentGrid").innerHTML = muted("Create a project to run agents.");
   $("#findingTabs").innerHTML = ""; $("#findingList").innerHTML = muted("No findings.");
   $("#researchGrid").innerHTML = muted("Create a project first.");
-  $("#missingGrid").innerHTML = muted("No project selected.");
   $("#riskColumns").innerHTML = ""; $("#riskProfile").innerHTML = muted("No project selected.");
   $("#reportsGrid").innerHTML = muted("Create a project to export reports.");
   $("#recommendationBanner").innerHTML = ""; $("#memoNav").innerHTML = "";
@@ -916,7 +884,6 @@ function renderProjectSurfaces() {
   renderFinancial();
   renderResearch();
   renderFindings();
-  renderMissing();
   renderRisks();
   renderMemo();
   renderIntelligence();
