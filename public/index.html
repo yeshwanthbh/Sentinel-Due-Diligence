@@ -202,7 +202,7 @@
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">Valuation Support</span><h2>Indicative multiple bridge</h2></div></div><div class="valuation-panel" id="valuationPanel"></div></article>
           </div>
           <div class="financial-analysis-grid">
-            <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
+            <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
           </div>
 
           <div class="panel-head" style="margin-top:26px;">
@@ -212,28 +212,26 @@
           <div class="research-grid" id="researchGrid"><p class="muted">Run the analysis to gather company overview, competitors, executives, news, patents, filings, and market data.</p></div>
         </section>
 
-        <!-- ANALYSIS WORKSPACE (Findings + Missing + Risks) -->
+        <!-- ANALYSIS WORKSPACE (executive summary dashboard) -->
         <section class="page" id="analysis-workspace">
-          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings &amp; risk in one place</h1></div></div>
+          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Diligence summary</h1></div></div>
           <p class="disclaimer-note"><i data-lucide="alert-triangle"></i>AI-generated findings, severities, and confidence scores. Review and verify each item before relying on it — do not treat this as a substitute for a qualified human analyst's sign-off.</p>
-          <div class="tabs workspace-tabs" id="workspaceTabs">
-            <button class="tab-button active" data-subtab="findings-pane"><i data-lucide="list-checks"></i>Findings</button>
-            <button class="tab-button" data-subtab="risks-pane"><i data-lucide="shield-alert"></i>Risks</button>
-          </div>
 
-          <div class="workspace-pane active" id="findings-pane" data-pane="findings-pane">
-            <div class="tabs" id="findingTabs"></div>
-            <div class="finding-list" id="findingList"></div>
-          </div>
+          <div class="metric-grid" id="workspaceStats"></div>
 
-          <div class="workspace-pane" id="risks-pane" data-pane="risks-pane">
+          <div class="workstream-summary-list" id="workstreamSummaryList"></div>
+
+          <article class="panel" id="riskSummaryPanel">
             <div class="panel-head">
-              <div><span class="eyebrow">Risk Register</span><h2>Risk center</h2></div>
+              <div><span class="eyebrow">Risk Register</span><h2>Key risks</h2></div>
               <button class="primary-button" id="runRiskAgent" type="button"><i data-lucide="shield-alert"></i>Rebuild Register</button>
             </div>
-            <div class="risk-profile" id="riskProfile"></div>
-            <div class="risk-columns" id="riskColumns"></div>
-          </div>
+            <p class="muted" id="riskNarrative"></p>
+            <details class="collapsible" id="riskDetails">
+              <summary>View full risk register</summary>
+              <div class="collapsible-body"><div class="risk-columns" id="riskColumns"></div></div>
+            </details>
+          </article>
         </section>
 
         <!-- MEMO -->

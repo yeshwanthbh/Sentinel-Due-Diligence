@@ -19,10 +19,12 @@ let currentUser = null;
 let authMode = "login";
 let projects = [];
 let currentProject = null;
-let currentFindingTab = null;
-let currentWorkspaceTab = "findings-pane";
 let saveTimer = null;
 let reviewTarget = null;
+// Tracks which per-workstream <details> drill-downs and the risk register are
+// expanded, so they survive the full re-render that follows every review action.
+let expandedWorkstreams = new Set();
+let riskDetailsExpanded = false;
 
 const $ = (sel) => document.querySelector(sel);
 const navList = $("#navList");
@@ -254,14 +256,6 @@ function showPage(id) {
   document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === id));
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.target === id));
   window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-// The Analysis Workspace page bundles Findings/Missing/Risks behind an
-// internal sub-tab bar so they no longer need separate sidebar entries or page navigations.
-function showWorkspaceTab(paneId) {
-  currentWorkspaceTab = paneId;
-  document.querySelectorAll(".workspace-pane").forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === paneId));
-  document.querySelectorAll("#workspaceTabs [data-subtab]").forEach((btn) => btn.classList.toggle("active", btn.dataset.subtab === paneId));
 }
 
 function countFindings(project, predicate) {
@@ -639,28 +633,50 @@ function isResolvedFinding(f) {
   return f.status === "Approved" || f.status === "Rejected";
 }
 
-function renderFindings() {
-  const openFor = (t) => currentProject.findings[t].filter((f) => !isResolvedFinding(f));
-  const allBuckets = Object.keys(currentProject.findings);
-  // Only show tabs that still have open (unresolved) findings.
-  const tabs = allBuckets.filter((t) => openFor(t).length);
-  const totalFindings = allBuckets.reduce((n, t) => n + currentProject.findings[t].length, 0);
-  if (!tabs.length) {
-    $("#findingTabs").innerHTML = "";
-    $("#findingList").innerHTML = totalFindings
-      ? `<p class="muted">All findings reviewed. Approved and rejected findings are archived — see the review log or exports for the full record.</p>`
-      : `<p class="muted">No findings yet. Upload documents and run the agents.</p>`;
-    return;
-  }
-  if (!tabs.includes(currentFindingTab)) currentFindingTab = tabs[0];
-  $("#findingTabs").innerHTML = tabs.map((t) => `<button class="tab-button ${t === currentFindingTab ? "active" : ""}" data-tab="${escapeHtml(t)}">${escapeHtml(t)} (${openFor(t).length})</button>`).join("");
-  $("#findingList").innerHTML = openFor(currentFindingTab).map((f) => findingCard(f, currentFindingTab)).join("");
+// Composes a short narrative from a workstream's own open findings — never
+// invents anything beyond concatenating counts and the findings' own text.
+function summarizeWorkstream(findings) {
+  const counts = { High: 0, Medium: 0, Low: 0 };
+  findings.forEach((f) => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
+  const countText = ["High", "Medium", "Low"].filter((s) => counts[s]).map((s) => `${counts[s]} ${s.toLowerCase()}`).join(", ");
+  const lead = `${findings.length} finding${findings.length === 1 ? "" : "s"} identified${countText ? ` (${countText})` : ""}.`;
+  const highlights = findings.slice(0, 2).map((f) => f.summary || f.title).filter(Boolean).join(" ");
+  return highlights ? `${lead} ${highlights}` : lead;
 }
 
-/* ---- Risks / Memo / Reports ---- */
-function renderRisks() {
+/* ---- Analysis Workspace: executive summary dashboard (findings + risks) ---- */
+function renderAnalysisWorkspace() {
+  const openFor = (t) => currentProject.findings[t].filter((f) => !isResolvedFinding(f));
+  const allBuckets = Object.keys(currentProject.findings);
+  const bucketsWithOpen = allBuckets.filter((t) => openFor(t).length);
+  const totalFindings = allBuckets.reduce((n, t) => n + currentProject.findings[t].length, 0);
+  const openFindings = allBuckets.reduce((n, t) => n + openFor(t).length, 0);
   const reg = currentProject.riskRegister;
-  $("#riskProfile").innerHTML = reg ? `<p><strong>Overall profile:</strong> ${escapeHtml(reg.overallProfile || "")}</p>` : `<p class="muted">Run the Risk Assessment Agent to build the register.</p>`;
+  const risks = reg?.risks || [];
+  const critical = risks.filter((r) => r.severity === "Critical").length;
+  const high = risks.filter((r) => r.severity === "High").length;
+
+  $("#workspaceStats").innerHTML = [
+    [totalFindings, "Total findings"],
+    [openFindings, "Needs review"],
+    [critical, "Critical risks"],
+    [high, "High risks"]
+  ].map(([v, l]) => `<article class="metric-card"><span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong></article>`).join("");
+
+  $("#workstreamSummaryList").innerHTML = bucketsWithOpen.length ? bucketsWithOpen.map((bucket) => {
+    const open = openFor(bucket);
+    const isOpen = expandedWorkstreams.has(bucket);
+    return `<article class="panel workstream-summary">
+      <div class="panel-head"><div><span class="eyebrow">${escapeHtml(bucket)}</span><h2>${open.length} finding${open.length === 1 ? "" : "s"} to review</h2></div></div>
+      <p class="muted">${escapeHtml(summarizeWorkstream(open))}</p>
+      <details class="collapsible" data-workstream="${escapeHtml(bucket)}" ${isOpen ? "open" : ""}>
+        <summary>${isOpen ? "Hide" : "Review"} ${open.length} item${open.length === 1 ? "" : "s"}</summary>
+        <div class="collapsible-body"><div class="finding-list">${open.map((f) => findingCard(f, bucket)).join("")}</div></div>
+      </details>
+    </article>`;
+  }).join("") : `<p class="muted">${totalFindings ? "All findings reviewed. Approved and rejected findings are archived — see the review log or exports for the full record." : "No findings yet. Upload documents and run the agents."}</p>`;
+
+  $("#riskNarrative").textContent = reg ? reg.overallProfile : "Run the Risk Assessment Agent to build the register.";
   const grouped = currentProject.risks && Object.keys(currentProject.risks).length ? currentProject.risks : { Critical: [], High: [], Medium: [], Low: [] };
   $("#riskColumns").innerHTML = ["Critical", "High", "Medium", "Low"].map((severity) => `
     <section class="risk-column">
@@ -669,6 +685,7 @@ function renderRisks() {
         <article class="risk-card"><strong>${escapeHtml(item[0])}</strong><p>${escapeHtml(item[1])}</p>
         <div class="finding-meta"><span>${escapeHtml(item[2])}</span><span>${escapeHtml(item[3])}</span></div></article>`).join("") || `<p class="muted">None.</p>`}
     </section>`).join("");
+  $("#riskDetails").open = riskDetailsExpanded;
 }
 
 function renderMemo() {
@@ -813,9 +830,10 @@ function renderEmptyWorkspace() {
   $("#fileTable").innerHTML = muted("Create a project, then upload documents.");
   $("#processingSummary").textContent = "0 documents";
   $("#agentGrid").innerHTML = muted("Create a project to run agents.");
-  $("#findingTabs").innerHTML = ""; $("#findingList").innerHTML = muted("No findings.");
+  $("#workspaceStats").innerHTML = "";
+  $("#workstreamSummaryList").innerHTML = muted("No findings.");
   $("#researchGrid").innerHTML = muted("Create a project first.");
-  $("#riskColumns").innerHTML = ""; $("#riskProfile").innerHTML = muted("No project selected.");
+  $("#riskColumns").innerHTML = ""; $("#riskNarrative").textContent = "No project selected.";
   $("#reportsGrid").innerHTML = muted("Create a project to export reports.");
   $("#recommendationBanner").innerHTML = ""; $("#memoNav").innerHTML = "";
   const body = $("#memoBody"); body.innerHTML = muted("Create a project to draft a memo."); body.dataset.projectId = "";
@@ -838,8 +856,7 @@ function renderProjectSurfaces() {
   renderAnalysis();
   renderFinancial();
   renderResearch();
-  renderFindings();
-  renderRisks();
+  renderAnalysisWorkspace();
   renderMemo();
   renderIntelligence();
   renderReports();
@@ -942,10 +959,11 @@ async function deleteProject(projectId) {
   projects = projects.filter((p) => p.id !== projectId);
 
   if (deletingCurrent) {
-    // Switching context — clear per-project view state so the Findings Center
-    // and review modal don't reference the deleted project.
+    // Switching context — clear per-project view state so the Analysis
+    // Workspace and review modal don't reference the deleted project.
     currentProject = projects[0] || null;
-    currentFindingTab = null;
+    expandedWorkstreams = new Set();
+    riskDetailsExpanded = false;
     reviewTarget = null;
   }
   renderProjectSurfaces();
@@ -954,19 +972,31 @@ async function deleteProject(projectId) {
 
 function wireInteractions() {
   document.addEventListener("click", (event) => {
-    const nav = event.target.closest("[data-target]"); if (nav) {
-      showPage(nav.dataset.target);
-      if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab);
-    }
-    const subtab = event.target.closest("#workspaceTabs [data-subtab]"); if (subtab) showWorkspaceTab(subtab.dataset.subtab);
+    const nav = event.target.closest("[data-target]"); if (nav) showPage(nav.dataset.target);
     const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject).catch(reportError("Couldn't open project"));
     const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject).catch(reportError("Couldn't delete project"));
-    const tab = event.target.closest("[data-tab]"); if (tab) { currentFindingTab = tab.dataset.tab; renderFindings(); refreshIcons(); }
     const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick).catch(reportError("Couldn't save review"));
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
     const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome).catch(reportError("Couldn't delete outcome"));
   });
+
+  // Keep the Analysis Workspace's expand/collapse state (workstream drill-downs,
+  // risk register) in sync across the full re-render every review action triggers,
+  // and update the summary label immediately without waiting for that re-render.
+  document.addEventListener("toggle", (event) => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    if (details.dataset.workstream) {
+      if (details.open) expandedWorkstreams.add(details.dataset.workstream);
+      else expandedWorkstreams.delete(details.dataset.workstream);
+      const summary = details.querySelector("summary");
+      const count = details.querySelectorAll(".finding-card").length;
+      if (summary) summary.textContent = `${details.open ? "Hide" : "Review"} ${count} item${count === 1 ? "" : "s"}`;
+    } else if (details.id === "riskDetails") {
+      riskDetailsExpanded = details.open;
+    }
+  }, true);
 
   $("#outcomeForm").addEventListener("submit", (e) => { e.preventDefault(); submitOutcome(e.currentTarget); });
 
