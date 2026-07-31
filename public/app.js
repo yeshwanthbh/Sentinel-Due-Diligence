@@ -1058,7 +1058,11 @@ async function deleteProject(projectId) {
 
 function wireInteractions() {
   document.addEventListener("click", (event) => {
-    const nav = event.target.closest("[data-target]"); if (nav) { showPage(nav.dataset.target); if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab); }
+    const nav = event.target.closest("[data-target]"); if (nav) {
+      showPage(nav.dataset.target);
+      if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab);
+      if (nav.dataset.openEvidence) { const browser = $("#evidenceBrowser"); browser.open = true; browser.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    }
     const subtab = event.target.closest("#workspaceTabs [data-subtab]"); if (subtab) showWorkspaceTab(subtab.dataset.subtab);
     const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject);
     const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject);
