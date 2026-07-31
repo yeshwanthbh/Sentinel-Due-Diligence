@@ -1,5 +1,5 @@
 /* Sentinel DD — UI orchestration layer.
- * Delegates document processing, evidence, agents, review, and export to the js/ modules.
+ * Delegates document processing, agents, review, and export to the js/ modules.
  * Data + auth now live server-side behind window.DD.api (Cloudflare Worker). */
 const { cryptoId, clone, escapeHtml } = window.DD.util;
 
@@ -22,8 +22,6 @@ let currentProject = null;
 let currentFindingTab = null;
 let currentWorkspaceTab = "findings-pane";
 let saveTimer = null;
-let evidenceSelection = null;
-let expandedFindingEvidence = new Set();
 let reviewTarget = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -202,7 +200,6 @@ function newProjectRecord({ company, industry, type, team, value, close }, owner
     documents: overrides.documents || [],
     coverage: overrides.coverage || [],
     findings: overrides.findings || {},
-    evidence: overrides.evidence || [],
     research: overrides.research || null,
     financial: overrides.financial || null,
     crossValidation: overrides.crossValidation || null,
@@ -210,7 +207,7 @@ function newProjectRecord({ company, industry, type, team, value, close }, owner
     risks: overrides.risks || {},
     recommendation: overrides.recommendation || null,
     financialInput: overrides.financialInput || "",
-    memoHtml: overrides.memoHtml || "<h2>Executive Summary</h2><p>Upload documents and run the AI agents to draft this memorandum. Every statement will reference supporting evidence.</p>",
+    memoHtml: overrides.memoHtml || "<h2>Executive Summary</h2><p>Upload documents and run the AI agents to draft this memorandum.</p>",
     agentRuns: overrides.agentRuns || {},
     reviewLog: overrides.reviewLog || [],
     auditLog: overrides.auditLog || [{ at: now, action: "Project created" }]
@@ -254,7 +251,7 @@ function showPage(id) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// The Analysis Workspace page bundles Findings/Evidence/Missing/Risks behind an
+// The Analysis Workspace page bundles Findings/Missing/Risks behind an
 // internal sub-tab bar so they no longer need separate sidebar entries or page navigations.
 function showWorkspaceTab(paneId) {
   currentWorkspaceTab = paneId;
@@ -269,12 +266,12 @@ function countFindings(project, predicate) {
 function renderDashboard() {
   const cards = document.querySelectorAll("#dashboard .metric-card");
   const totalDocs = projects.reduce((s, p) => s + (p.documents?.length || 0), 0);
-  const totalEvidence = projects.reduce((s, p) => s + (p.evidence?.length || 0), 0);
+  const totalFindings = projects.reduce((s, p) => s + countFindings(p), 0);
   const openFindings = projects.reduce((s, p) => s + countFindings(p, (f) => f.status !== "Approved" && f.status !== "Rejected"), 0);
   const values = [
     [projects.length, "Saved diligence projects"],
     [totalDocs, "Documents processed"],
-    [totalEvidence, "Evidence citations"],
+    [totalFindings, "Findings logged"],
     [openFindings, "Findings awaiting review"]
   ];
   cards.forEach((card, i) => { card.querySelector("strong").textContent = values[i][0]; card.querySelector("small").textContent = values[i][1]; });
@@ -347,7 +344,7 @@ function renderDataRoom() {
   filter.innerHTML = cats.map((c) => `<option value="${c}" ${c === currentCat ? "selected" : ""}>${c === "all" ? "All categories" : c}</option>`).join("");
 
   const rows = window.DD.dataroom.inventory(project, { search: $("#dataRoomSearch").value, category: filter.value });
-  $("#processingSummary").textContent = `${project.documents?.length || 0} documents • ${project.evidence?.length || 0} evidence`;
+  $("#processingSummary").textContent = `${project.documents?.length || 0} documents`;
   $("#fileTable").innerHTML = rows.length ? rows.map((doc) => `
     <div class="file-row">
       <div><div class="row-title">${escapeHtml(doc.name)}</div><div class="row-sub">${doc.pageCount || 0} pages • ${doc.wordCount || 0} words${doc.ocrUsed ? " • OCR" : ""} • ${new Date(doc.uploadedAt).toLocaleString()}</div></div>
@@ -612,9 +609,6 @@ function renderFinancial() {
 
   const finFindings = currentProject.findings.Financial || [];
   $("#financialFindingsList").innerHTML = finFindings.map((f) => findingCard(f, "Financial")).join("") || `<p class="muted">No financial findings yet.</p>`;
-  $("#financialEvidenceList").innerHTML = window.DD.evidence.query(currentProject, { agent: "Financial Due Diligence Agent" })
-    .map((e) => `<article class="evidence-mini"><strong>${escapeHtml(e.fact)}</strong><span>${escapeHtml(e.docName)}${e.page ? `, p.${e.page}` : ""} • ${e.confidence}%</span></article>`).join("")
-    || `<p class="muted">No source-linked calculations yet.</p>`;
 }
 
 /* ---- Research page ---- */
@@ -636,22 +630,9 @@ function renderResearch() {
 }
 
 /* ---- Findings ---- */
-// Renders a finding's supporting citations inline (used both on initial paint when
-// already expanded, and when the "Evidence" toggle button opens the section).
-function findingEvidenceHtml(findingId) {
-  const items = window.DD.evidence.forFinding(currentProject, findingId);
-  return items.map((e) => `
-    <div class="evidence-item">
-      <div class="evidence-item-top"><strong>${escapeHtml(e.fact)}</strong><span class="confidence">${e.confidence}%</span></div>
-      <span class="muted">${escapeHtml(e.docName)}${e.page ? `, p.${e.page}` : ""} • ${escapeHtml(e.location)} • ${escapeHtml(e.agent)}</span>
-      <blockquote class="excerpt">${escapeHtml(e.excerpt || "No excerpt captured.")}</blockquote>
-    </div>`).join("") || `<p class="muted">No evidence linked yet.</p>`;
-}
-
 function findingCard(f, bucket) {
   const sev = `severity-${f.severity.toLowerCase()}`;
   const statusClass = f.status === "Approved" ? "success" : f.status === "Rejected" ? "danger" : f.status === "Edited" ? "info" : "warning";
-  const expanded = expandedFindingEvidence.has(f.id);
   return `<article class="finding-card">
     <div class="finding-card-top">
       <div><h2>${escapeHtml(f.title)}</h2><p class="muted">${escapeHtml(f.summary)}</p></div>
@@ -659,7 +640,6 @@ function findingCard(f, bucket) {
     </div>
     <div class="finding-meta">
       <span>Confidence ${f.confidence}%</span>
-      <span>${f.evidenceCount || 0} evidence</span>
       <span class="status-badge ${statusClass}">${escapeHtml(f.status)}</span>
       <span>${escapeHtml(f.agent || "")}</span>
     </div>
@@ -669,10 +649,8 @@ function findingCard(f, bucket) {
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Edited">${icon("pencil")}Edit</button>
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Commented">${icon("message-square")}Comment</button>
       <button class="ghost-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="History">${icon("history")}History</button>
-      <button class="ghost-button" data-toggle-evidence="${f.id}">${icon(expanded ? "chevron-up" : "search-check")}${expanded ? "Hide Evidence" : "Evidence"}</button>
     </div>
     ${(f.reviews && f.reviews.length) ? `<div class="review-strip">${f.reviews.slice(0, 2).map((rv) => `<span>${escapeHtml(rv.by)} ${escapeHtml(rv.action)}${rv.note ? `: ${escapeHtml(rv.note)}` : ""} • ${new Date(rv.at).toLocaleString()}</span>`).join("")}</div>` : ""}
-    <div class="finding-evidence" id="finding-evidence-${f.id}" ${expanded ? "" : "hidden"}>${expanded ? findingEvidenceHtml(f.id) : ""}</div>
   </article>`;
 }
 
@@ -697,53 +675,6 @@ function renderFindings() {
   if (!tabs.includes(currentFindingTab)) currentFindingTab = tabs[0];
   $("#findingTabs").innerHTML = tabs.map((t) => `<button class="tab-button ${t === currentFindingTab ? "active" : ""}" data-tab="${escapeHtml(t)}">${escapeHtml(t)} (${openFor(t).length})</button>`).join("");
   $("#findingList").innerHTML = openFor(currentFindingTab).map((f) => findingCard(f, currentFindingTab)).join("");
-}
-
-/* ---- Evidence explorer ---- */
-function populateEvidenceFilter() {
-  const options = ['<option value="all">All evidence</option>'];
-  Object.entries(currentProject.findings).forEach(([bucket, list]) => list.forEach((f) => options.push(`<option value="finding:${f.id}">${escapeHtml(bucket)}: ${escapeHtml(f.title.slice(0, 40))}</option>`)));
-  [...new Set((currentProject.evidence || []).map((e) => e.agent))].forEach((agent) => options.push(`<option value="agent:${escapeHtml(agent)}">Agent: ${escapeHtml(agent)}</option>`));
-  const sel = $("#evidenceFindingFilter");
-  const prev = sel.value;
-  sel.innerHTML = options.join("");
-  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
-}
-
-function renderEvidence() {
-  if (!currentProject) return;
-  populateEvidenceFilter();
-  const minConf = Number($("#evidenceConfidenceFilter").value);
-  $("#evidenceConfidenceValue").textContent = minConf;
-  const sourceType = $("#evidenceSourceFilter").value;
-  const filterVal = $("#evidenceFindingFilter").value;
-  const filters = { minConfidence: minConf, sourceType };
-  if (filterVal.startsWith("finding:")) filters.findingId = filterVal.slice(8);
-  if (filterVal.startsWith("agent:")) filters.agent = filterVal.slice(6);
-  const results = window.DD.evidence.query(currentProject, filters);
-  const avg = window.DD.evidence.averageConfidence(results);
-  $("#evidenceAverageConfidence").textContent = `${avg}%`;
-  $("#evidenceSummary").innerHTML = `<span class="chip">${results.length} facts</span><span class="chip">avg ${avg}% confidence</span><span class="chip">${new Set(results.map((r) => r.docName)).size} source documents</span>`;
-  $("#evidenceList").innerHTML = results.map((e) => `
-    <button class="evidence-item ${evidenceSelection === e.id ? "active" : ""}" data-evidence="${e.id}">
-      <div class="evidence-item-top"><strong>${escapeHtml(e.fact)}</strong><span class="confidence">${e.confidence}%</span></div>
-      <span class="muted">${escapeHtml(e.docName)}${e.page ? `, p.${e.page}` : ""} • ${escapeHtml(e.location)} • ${escapeHtml(e.agent)}</span>
-    </button>`).join("") || `<p class="muted">No evidence matches these filters.</p>`;
-  const selected = window.DD.evidence.byId(currentProject, evidenceSelection) || results[0];
-  renderEvidenceDetail(selected);
-}
-
-function renderEvidenceDetail(e) {
-  if (!e) { $("#evidenceDetail").innerHTML = `<p class="muted">Select an evidence item to view its source excerpt and citation.</p>`; return; }
-  evidenceSelection = e.id;
-  $("#evidenceDetail").innerHTML = `
-    <div class="panel-head"><div><span class="eyebrow">Citation</span><h2>${escapeHtml(e.docName)}</h2></div><span class="confidence">${e.confidence}%</span></div>
-    <div class="citation-meta">
-      <span><b>Page</b> ${e.page ?? "—"}</span><span><b>Location</b> ${escapeHtml(e.location)}</span>
-      <span><b>Agent</b> ${escapeHtml(e.agent)}</span><span><b>Logged</b> ${new Date(e.createdAt).toLocaleString()}</span>
-    </div>
-    <p class="fact"><b>Fact:</b> ${escapeHtml(e.fact)}</p>
-    <blockquote class="excerpt">${escapeHtml(e.excerpt || "No excerpt captured.")}</blockquote>`;
 }
 
 /* ---- Missing / Risks / Memo / Reports ---- */
@@ -790,9 +721,9 @@ function renderMemo() {
 
 function renderReports() {
   $("#reportsGrid").innerHTML = [
-    ["Full PDF Report", "Findings, risk register, and evidence appendix.", "file-down", "exportPdf", "PDF"],
-    ["Investment Committee Memo", "Editable memo with recommendation and citations.", "file-text", "exportWord", "Word"],
-    ["Diligence Workbook", "Findings, risks, evidence, and financial metrics.", "table", "exportExcel", "Excel"],
+    ["Full PDF Report", "Findings and risk register.", "file-down", "exportPdf", "PDF"],
+    ["Investment Committee Memo", "Editable memo with recommendation.", "file-text", "exportWord", "Word"],
+    ["Diligence Workbook", "Findings, risks, and financial metrics.", "table", "exportExcel", "Excel"],
     ["Board Presentation", "Summary slides with findings and risk tables.", "presentation", "exportPptx", "PowerPoint"]
   ].map(([title, desc, ic, fn, badge]) => `
     <article class="report-card">
@@ -826,7 +757,7 @@ async function renderIntelligence() {
     if (signal?.avgSuccess != null) chips.push(`<span class="chip">avg success ${signal.avgSuccess.toFixed(1)}/5</span>`);
     if (signal?.closedRate != null) chips.push(`<span class="chip">${pct(signal.closedRate)} closed</span>`);
     if (signal?.commonMissedRisks?.length) chips.push(`<span class="chip danger">commonly missed: ${escapeHtml(signal.commonMissedRisks.slice(0, 3).join(", "))}</span>`);
-    cmp.innerHTML = `<div class="evidence-summary">${chips.join("")}</div>` + comparableDeals.map((d) => `
+    cmp.innerHTML = `<div class="chip-row">${chips.join("")}</div>` + comparableDeals.map((d) => `
       <div class="file-row">
         <div><div class="row-title">${escapeHtml(d.industry)} • ${escapeHtml(d.dealType)}</div>
           <div class="row-sub">${escapeHtml(d.valueBand)} • prior call: ${escapeHtml(d.priorRecommendation || "—")} • ${d.outcome.materializedRisks.length} risk(s) materialized / ${d.outcome.missedRisks.length} missed</div></div>
@@ -918,8 +849,6 @@ function renderEmptyWorkspace() {
   $("#agentGrid").innerHTML = muted("Create a project to run agents.");
   $("#findingTabs").innerHTML = ""; $("#findingList").innerHTML = muted("No findings.");
   $("#researchGrid").innerHTML = muted("Create a project first.");
-  $("#evidenceList").innerHTML = muted("No evidence."); $("#evidenceSummary").innerHTML = "";
-  $("#evidenceDetail").innerHTML = muted("No project selected.");
   $("#missingGrid").innerHTML = muted("No project selected.");
   $("#riskColumns").innerHTML = ""; $("#riskProfile").innerHTML = muted("No project selected.");
   $("#reportsGrid").innerHTML = muted("Create a project to export reports.");
@@ -939,7 +868,6 @@ function renderProjectSurfaces() {
   renderDataRoom();
   renderAnalysis();
   renderFindings();
-  renderEvidence();
   renderMissing();
   renderRisks();
   renderMemo();
@@ -1030,7 +958,7 @@ async function openProject(projectId) {
 async function deleteProject(projectId) {
   const project = projects.find((p) => p.id === projectId);
   if (!project) return;
-  if (!window.confirm(`Delete "${project.name}"? This deletes its findings, evidence, and uploaded documents. This cannot be undone.`)) return;
+  if (!window.confirm(`Delete "${project.name}"? This deletes its findings and uploaded documents. This cannot be undone.`)) return;
 
   const deletingCurrent = currentProject && currentProject.id === projectId;
   // Cancel any pending debounced save so it can't write a stale copy back after delete.
@@ -1044,12 +972,10 @@ async function deleteProject(projectId) {
   projects = projects.filter((p) => p.id !== projectId);
 
   if (deletingCurrent) {
-    // Switching context — clear per-project view state so the Findings Center,
-    // evidence explorer, and review modal don't reference the deleted project.
+    // Switching context — clear per-project view state so the Findings Center
+    // and review modal don't reference the deleted project.
     currentProject = projects[0] || null;
     currentFindingTab = null;
-    evidenceSelection = null;
-    expandedFindingEvidence = new Set();
     reviewTarget = null;
   }
   renderProjectSurfaces();
@@ -1061,7 +987,6 @@ function wireInteractions() {
     const nav = event.target.closest("[data-target]"); if (nav) {
       showPage(nav.dataset.target);
       if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab);
-      if (nav.dataset.openEvidence) { const browser = $("#evidenceBrowser"); browser.open = true; browser.scrollIntoView({ behavior: "smooth", block: "start" }); }
     }
     const subtab = event.target.closest("#workspaceTabs [data-subtab]"); if (subtab) showWorkspaceTab(subtab.dataset.subtab);
     const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject);
@@ -1069,17 +994,6 @@ function wireInteractions() {
     const tab = event.target.closest("[data-tab]"); if (tab) { currentFindingTab = tab.dataset.tab; renderFindings(); refreshIcons(); }
     const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick);
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
-    const evToggle = event.target.closest("[data-toggle-evidence]"); if (evToggle) {
-      const findingId = evToggle.dataset.toggleEvidence;
-      const panel = document.getElementById(`finding-evidence-${findingId}`);
-      const nowExpanded = panel.hidden;
-      if (nowExpanded) { expandedFindingEvidence.add(findingId); panel.innerHTML = findingEvidenceHtml(findingId); }
-      else { expandedFindingEvidence.delete(findingId); panel.innerHTML = ""; }
-      panel.hidden = !nowExpanded;
-      evToggle.innerHTML = `${icon(nowExpanded ? "chevron-up" : "search-check")}${nowExpanded ? "Hide Evidence" : "Evidence"}`;
-      refreshIcons();
-    }
-    const evItem = event.target.closest("[data-evidence]"); if (evItem) { renderEvidenceDetail(window.DD.evidence.byId(currentProject, evItem.dataset.evidence)); renderEvidence(); }
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
     const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome);
   });
@@ -1184,23 +1098,6 @@ function wireInteractions() {
     currentProject.financialInput = result.fullText;
     $("#financialStatementInput").value = result.fullText;
     scheduleSave("Financial file loaded"); showToast("Financial file parsed. Run analysis.");
-  });
-
-  // ---- Evidence ----
-  ["change", "input"].forEach((evt) => {
-    $("#evidenceFindingFilter").addEventListener(evt, renderEvidence);
-    $("#evidenceConfidenceFilter").addEventListener(evt, renderEvidence);
-    $("#evidenceSourceFilter").addEventListener(evt, renderEvidence);
-  });
-  $("#copyEvidenceApi").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(window.DD.evidence.API_CONTRACT); showToast("Evidence API contract copied."); }
-    catch { showToast("Copy failed — see console."); console.log(window.DD.evidence.API_CONTRACT); }
-  });
-  $("#exportEvidenceBundle").addEventListener("click", () => {
-    if (!requireProject()) return;
-    const blob = new Blob([JSON.stringify(currentProject.evidence || [], null, 2)], { type: "application/json" });
-    window.DD.exporter.download(blob, `${currentProject.name.replace(/\s+/g, "-").toLowerCase()}-evidence.json`);
-    showToast("Evidence bundle exported as JSON.");
   });
 
   // ---- Review modal ----

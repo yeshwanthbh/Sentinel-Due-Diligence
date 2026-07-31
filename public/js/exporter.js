@@ -1,6 +1,6 @@
 /* Sentinel DD — export engine (Phase 15)
  * PDF (jsPDF), Word (HTML .doc), Excel (SheetJS), PowerPoint (PptxGenJS).
- * Reports preserve findings, tables, risk register, citations, and appendices. */
+ * Reports preserve findings, tables, and the risk register. */
 (function () {
   const DD = (window.DD = window.DD || {});
 
@@ -45,17 +45,12 @@
     line("Findings", 15, true, 8);
     allFindings(project).forEach((f) => {
       line(`• [${f.bucket} / ${f.severity} / ${f.confidence}%] ${f.title}`, 11, true, 4);
-      line(`${f.summary} (${f.evidenceCount || 0} evidence items, status: ${f.status})`, 10, false, 8);
+      line(`${f.summary} (status: ${f.status})`, 10, false, 8);
     });
 
     line("Risk Register", 15, true, 8);
     (project.riskRegister?.risks || []).forEach((r) => line(`• [${r.severity}] ${r.title} — ${r.mitigation || ""}`, 10, false, 6));
 
-    line("Evidence Appendix", 15, true, 8);
-    (project.evidence || []).slice(0, 60).forEach((e) => {
-      line(`• ${e.fact}`, 10, true, 3);
-      line(`Source: ${e.docName}${e.page ? `, p.${e.page}` : ""} (${e.location}) — ${e.confidence}% — "${(e.excerpt || "").slice(0, 160)}"`, 9, false, 7);
-    });
     download(doc.output("blob"), `${slug(project.name)}-diligence.pdf`);
   }
 
@@ -66,8 +61,6 @@
       `<tr><td>${esc(f.bucket)}</td><td>${esc(f.title)}</td><td>${esc(f.severity)}</td><td>${f.confidence}%</td><td>${esc(f.status)}</td></tr>`).join("");
     const risksHtml = (project.riskRegister?.risks || []).map((r) =>
       `<tr><td>${esc(r.severity)}</td><td>${esc(r.title)}</td><td>${esc(r.category)}</td><td>${esc(r.likelihood)}</td><td>${r.confidence}%</td></tr>`).join("");
-    const evHtml = (project.evidence || []).slice(0, 80).map((e) =>
-      `<tr><td>${esc(e.fact)}</td><td>${esc(e.docName)}${e.page ? `, p.${e.page}` : ""}</td><td>${e.confidence}%</td><td>${esc((e.excerpt || "").slice(0, 200))}</td></tr>`).join("");
     const rec = project.recommendation;
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(project.name)}</title>
       <style>body{font-family:Calibri,Arial,sans-serif;} table{border-collapse:collapse;width:100%;margin:8px 0;} td,th{border:1px solid #999;padding:6px;font-size:11pt;text-align:left;} h1{font-size:20pt;} h2{font-size:14pt;border-bottom:2px solid #333;}</style></head><body>
@@ -77,7 +70,6 @@
       <h2>Memo</h2>${project.memoHtml || "<p>No memo drafted.</p>"}
       <h2>Findings</h2><table><tr><th>Workstream</th><th>Finding</th><th>Severity</th><th>Confidence</th><th>Status</th></tr>${findingsHtml}</table>
       <h2>Risk Register</h2><table><tr><th>Severity</th><th>Risk</th><th>Category</th><th>Likelihood</th><th>Confidence</th></tr>${risksHtml}</table>
-      <h2>Evidence Appendix</h2><table><tr><th>Fact</th><th>Source</th><th>Confidence</th><th>Excerpt</th></tr>${evHtml}</table>
       </body></html>`;
     download(new Blob([html], { type: "application/msword" }), `${slug(project.name)}-memo.doc`);
   }
@@ -88,7 +80,7 @@
     const wb = window.XLSX.utils.book_new();
     const findings = allFindings(project).map((f) => ({
       Workstream: f.bucket, Finding: f.title, Summary: f.summary,
-      Severity: f.severity, Confidence: f.confidence, Evidence: f.evidenceCount || 0, Status: f.status
+      Severity: f.severity, Confidence: f.confidence, Status: f.status
     }));
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(findings.length ? findings : [{ Note: "No findings" }]), "Findings");
 
@@ -96,11 +88,6 @@
       Severity: r.severity, Risk: r.title, Category: r.category, Likelihood: r.likelihood, Confidence: r.confidence, Mitigation: r.mitigation
     }));
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(risks.length ? risks : [{ Note: "No risks" }]), "Risk Register");
-
-    const evidence = (project.evidence || []).map((e) => ({
-      Fact: e.fact, Document: e.docName, Page: e.page, Location: e.location, Confidence: e.confidence, Agent: e.agent, Excerpt: e.excerpt
-    }));
-    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(evidence.length ? evidence : [{ Note: "No evidence" }]), "Evidence");
 
     const metrics = (project.financial?.metrics || []).map((m) => ({ Metric: m.label, Value: m.value, Basis: m.hint }));
     if (metrics.length) window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(metrics), "Financials");

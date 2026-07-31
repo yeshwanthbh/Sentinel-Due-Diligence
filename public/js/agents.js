@@ -1,12 +1,10 @@
 /* Sentinel DD — AI agent orchestration (Phases 5-13)
  * Each agent is the SAME underlying model (Claude/OpenAI) specialized by its system prompt.
- * With an API key the engine calls the LLM; without one it uses the deterministic engine.
- * Every finding is written back linked to Evidence Engine citations. */
+ * With an API key the engine calls the LLM; without one it uses the deterministic engine. */
 (function () {
   const DD = (window.DD = window.DD || {});
   const { cryptoId, clone } = DD.util;
   const H = () => DD.heuristics;
-  const EV = () => DD.evidence;
 
   // ---------- specialized system prompts ----------
   const COMMON = `You are part of Sentinel, an AI due-diligence platform for private-market investors.
@@ -109,7 +107,6 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
   // ---------- project scaffolding ----------
   function ensure(project) {
     project.findings = project.findings || {};
-    project.evidence = project.evidence || [];
     project.research = project.research || null;
     project.financial = project.financial || null;
     project.crossValidation = project.crossValidation || null;
@@ -157,31 +154,11 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       id: cryptoId(), title: data.title, summary: data.summary || "",
       severity: data.severity || "Medium", confidence: Math.round(data.confidence ?? 75),
       status: "Needs Review", agent: data.agent || bucket,
-      evidenceIds: [], evidenceCount: 0, reviews: [], versions: [],
+      reviews: [], versions: [],
       createdAt: now, updatedAt: now
     };
     list.push(finding);
     return finding;
-  }
-
-  function findDoc(project, name) {
-    if (!name) return null;
-    const lower = String(name).toLowerCase();
-    return project.documents.find((d) => d.name.toLowerCase() === lower)
-      || project.documents.find((d) => d.name.toLowerCase().includes(lower) || lower.includes(d.name.toLowerCase()));
-  }
-
-  function linkEvidence(project, finding, sourceDocs, agentName, excerptHint) {
-    const names = sourceDocs && sourceDocs.length ? sourceDocs : project.documents.slice(0, 1).map((d) => d.name);
-    names.forEach((name) => {
-      const doc = findDoc(project, name);
-      const item = EV().cite(project, doc, {
-        fact: finding.title, factKey: excerptHint || finding.title,
-        agent: agentName, findingId: finding.id, confidence: finding.confidence
-      });
-      finding.evidenceIds.push(item.id);
-    });
-    finding.evidenceCount = finding.evidenceIds.length;
   }
 
   // ================= RUN ENGINE =================
@@ -235,13 +212,11 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       if (source === "model") {
         (project.research.competitors || []).slice(0, 1).forEach((c) => {
           if (!c.name || /not resolved|unknown/i.test(c.name)) return;
-          const f = addFinding(project, "External Research", {
+          addFinding(project, "External Research", {
             title: "Competitive pressure identified", severity: "Low",
             summary: `External signals note ${c.name} as a competitor. ${c.note || ""}`.trim(),
             confidence: 66, agent: agent.name
           });
-          EV().add(project, { fact: f.title, docName: "External research", agent: agent.name, findingId: f.id, confidence: 66, location: "paragraph", excerpt: c.note || c.name });
-          f.evidenceCount = EV().forFinding(project, f.id).length;
         });
       }
       return { research: project.research };
@@ -257,10 +232,8 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       const findingsSpec = (source === "model" && output?.findings?.length)
         ? output.findings
         : heuristicFinancialFindings(parsed, anomalies);
-      const financialDoc = project.documents.find((d) => d.category === "Financial" && !d.duplicateOf);
       findingsSpec.forEach((spec) => {
-        const f = addFinding(project, "Financial", { ...spec, agent: agent.name });
-        linkEvidence(project, f, spec.sourceDocs || (financialDoc ? [financialDoc.name] : []), agent.name, spec.excerpt);
+        addFinding(project, "Financial", { ...spec, agent: agent.name });
       });
       return { metrics, findings: findingsSpec.length };
     },
@@ -269,8 +242,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       let count = 0;
       if (source === "model" && output?.findings?.length) {
         output.findings.forEach((spec) => {
-          const f = addFinding(project, agent.bucket, { ...spec, agent: agent.name });
-          linkEvidence(project, f, spec.sourceDocs, agent.name, spec.excerpt);
+          addFinding(project, agent.bucket, { ...spec, agent: agent.name });
           count += 1;
         });
       } else {
@@ -372,20 +344,18 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
       });
       if (!matches.length) return;
       const strength = matches.length;
-      const f = addFinding(project, agent.bucket, {
+      addFinding(project, agent.bucket, {
         title: signal.title, summary: signal.summary, severity: signal.severity,
         confidence: H().severityConfidence(signal.severity, strength), agent: agent.name
       });
-      linkEvidence(project, f, matches.map((m) => m.name), agent.name, signal.kw[0]);
       count += 1;
     });
     if (!count && docs.length) {
-      const f = addFinding(project, agent.bucket, {
+      addFinding(project, agent.bucket, {
         title: `${agent.bucket} review — no material issues detected`,
         summary: `Automated review of ${docs.length} document(s) surfaced no keyword-level red flags. Manual review recommended.`,
         severity: "Low", confidence: 60, agent: agent.name
       });
-      linkEvidence(project, f, docs.map((d) => d.name), agent.name);
       count += 1;
     }
     return count;
@@ -409,20 +379,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
 
   function heuristicCrossValidation(project) {
     const contradictions = [];
-    const adjustments = [];
-    const all = [];
-    Object.entries(project.findings).forEach(([bucket, list]) => list.forEach((f) => all.push({ bucket, f })));
-    // 1) low-evidence findings -> lower confidence; multi-evidence -> raise
-    all.forEach(({ f }) => {
-      const ev = EV().forFinding(project, f.id).length;
-      if (ev <= 1 && f.confidence > 70) adjustments.push({ findingTitle: f.title, newConfidence: Math.max(55, f.confidence - 12), reason: "Only one supporting evidence item." });
-      if (ev >= 3) adjustments.push({ findingTitle: f.title, newConfidence: Math.min(97, f.confidence + 4), reason: "Corroborated by multiple documents." });
-    });
-    adjustments.forEach((a) => {
-      const target = all.find(({ f }) => f.title === a.findingTitle);
-      if (target) target.f.confidence = a.newConfidence;
-    });
-    // 2) revenue growth: management claim vs computed
+    // 1) revenue growth: management claim vs computed
     const parsed = project.financial?.parsed;
     const computedGrowth = parsed ? H().pctChange(parsed.revenue) : null;
     const claim = (project.research?.overview || "") + Object.values(project.findings).flat().map((f) => f.summary).join(" ");
@@ -438,7 +395,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
         });
       }
     }
-    // 3) duplicate/version conflicts among documents
+    // 2) duplicate/version conflicts among documents
     const dupes = project.documents.filter((d) => d.duplicateOf);
     if (dupes.length) {
       contradictions.push({
@@ -448,7 +405,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
         resolution: "Confirm the retained version is the latest signed/final copy."
       });
     }
-    return { contradictions, confidenceAdjustments: adjustments };
+    return { contradictions };
   }
 
   function heuristicRiskRegister(project) {
@@ -484,7 +441,7 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     const bucketHtml = (bucket) => {
       const list = project.findings[bucket] || [];
       if (!list.length) return `<p>No ${esc(bucket.toLowerCase())} findings generated yet.</p>`;
-      return `<ul>${list.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.summary)} <em>(${f.severity}, ${f.confidence}% confidence, ${f.evidenceCount || 0} evidence)</em></li>`).join("")}</ul>`;
+      return `<ul>${list.map((f) => `<li><strong>${esc(f.title)}</strong> — ${esc(f.summary)} <em>(${f.severity}, ${f.confidence}% confidence)</em></li>`).join("")}</ul>`;
     };
     const rec = project.recommendation;
     const risks = project.riskRegister?.risks || [];
@@ -506,13 +463,12 @@ Return JSON: {"decision":str,"confidence":int,"rationale":str,"conditions":[str]
     const high = risks.filter((r) => r.severity === "High").length;
     const missing = (project.documents || []).length;
     const coverage = DD.classify.missingCategories(project.documents || [], project.type || project.workflow);
-    const evidenceCount = (project.evidence || []).length;
-    const insufficient = missing < 2 || evidenceCount < 3 || coverage.length > 3;
+    const insufficient = missing < 2 || coverage.length > 3;
     let decision, confidence, rationale;
     if (critical >= 1 && high >= 2) { decision = "Do Not Invest"; confidence = 78; rationale = "Multiple critical/high risks outweigh the thesis at current terms."; }
-    else if (insufficient) { decision = "Continue Due Diligence"; confidence = 64; rationale = `Evidence base is thin (${evidenceCount} items, ${coverage.length} missing categories). Gather more before deciding.`; }
+    else if (insufficient) { decision = "Continue Due Diligence"; confidence = 64; rationale = `Document coverage is thin (${coverage.length} missing categories). Gather more before deciding.`; }
     else if (critical >= 1 || high >= 1) { decision = "Invest with Conditions"; confidence = 72; rationale = "Thesis is supportable subject to remediation of the highest-severity risks."; }
-    else { decision = "Invest"; confidence = 80; rationale = "No critical risks identified and evidence coverage is adequate."; }
+    else { decision = "Invest"; confidence = 80; rationale = "No critical risks identified and document coverage is adequate."; }
     return {
       decision, confidence, rationale,
       conditions: risks.filter((r) => ["Critical", "High"].includes(r.severity)).slice(0, 4).map((r) => `Resolve: ${r.title}`),

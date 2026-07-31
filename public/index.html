@@ -23,7 +23,7 @@
         <div class="auth-copy">
           <span class="eyebrow">Authentication</span>
           <h1>Sign in to your diligence operating system</h1>
-          <p>Accounts, projects, documents, evidence, findings, and reviewer actions are stored securely in your Sentinel workspace and synced across your devices.</p>
+          <p>Accounts, projects, documents, findings, and reviewer actions are stored securely in your Sentinel workspace and synced across your devices.</p>
         </div>
         <div class="tabs auth-tabs" id="authTabs">
           <button class="tab-button active" data-auth-mode="login">Log in</button>
@@ -69,7 +69,7 @@
         <header class="topbar">
           <div class="search-wrap">
             <i data-lucide="search"></i>
-            <input id="globalSearch" type="search" placeholder="Search projects, findings, evidence, agents..." />
+            <input id="globalSearch" type="search" placeholder="Search projects, findings, agents..." />
           </div>
           <div class="topbar-actions">
             <select class="project-switcher" id="projectSwitcher" aria-label="Open saved project"></select>
@@ -92,7 +92,7 @@
           <div class="metric-grid">
             <article class="metric-card"><span>Active Projects</span><strong>0</strong><small>—</small></article>
             <article class="metric-card"><span>Documents</span><strong>0</strong><small>—</small></article>
-            <article class="metric-card"><span>Evidence Items</span><strong>0</strong><small>—</small></article>
+            <article class="metric-card"><span>Total Findings</span><strong>0</strong><small>—</small></article>
             <article class="metric-card"><span>Open Findings</span><strong>0</strong><small>—</small></article>
           </div>
           <div class="dashboard-grid">
@@ -213,8 +213,7 @@
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">Valuation Support</span><h2>Indicative multiple bridge</h2></div></div><div class="valuation-panel" id="valuationPanel"></div></article>
           </div>
           <div class="financial-analysis-grid">
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Evidence Engine</span><h2>Source-linked calculations</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane" data-open-evidence="true">Open evidence</button></div><div class="evidence-link-list" id="financialEvidenceList"></div></article>
+            <article class="panel span-2"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
           </div>
         </section>
 
@@ -227,9 +226,9 @@
           <div class="research-grid" id="researchGrid"><p class="muted">Run the Research Agent to gather company overview, competitors, executives, news, patents, filings, and market data with citations.</p></div>
         </section>
 
-        <!-- ANALYSIS WORKSPACE (Findings + Evidence + Missing + Risks) -->
+        <!-- ANALYSIS WORKSPACE (Findings + Missing + Risks) -->
         <section class="page" id="analysis-workspace">
-          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings, evidence, gaps &amp; risk in one place</h1></div></div>
+          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings, gaps &amp; risk in one place</h1></div></div>
           <div class="tabs workspace-tabs" id="workspaceTabs">
             <button class="tab-button active" data-subtab="findings-pane"><i data-lucide="list-checks"></i>Findings</button>
             <button class="tab-button" data-subtab="missing-pane"><i data-lucide="circle-help"></i>Missing Info</button>
@@ -239,32 +238,6 @@
           <div class="workspace-pane active" id="findings-pane" data-pane="findings-pane">
             <div class="tabs" id="findingTabs"></div>
             <div class="finding-list" id="findingList"></div>
-
-            <details class="evidence-browser" id="evidenceBrowser">
-              <summary><i data-lucide="search-check"></i>Browse &amp; export all evidence</summary>
-              <div class="evidence-browser-body">
-                <div class="panel-head">
-                  <div><span class="eyebrow">Citation Engine</span><h2>Evidence explorer</h2></div>
-                  <div class="button-row">
-                    <button class="secondary-button" id="copyEvidenceApi"><i data-lucide="braces"></i>Copy API contract</button>
-                    <button class="primary-button" id="exportEvidenceBundle"><i data-lucide="download"></i>Export evidence</button>
-                  </div>
-                </div>
-                <div class="evidence-toolbar">
-                  <label class="field"><span>Finding or Agent</span><select id="evidenceFindingFilter"></select></label>
-                  <label class="field"><span>Minimum Confidence: <b id="evidenceConfidenceValue">70</b>%</span><input id="evidenceConfidenceFilter" type="range" min="0" max="99" value="70" /></label>
-                  <label class="field"><span>Source Type</span><select id="evidenceSourceFilter"><option value="all">All sources</option><option value="table">Tables</option><option value="paragraph">Paragraphs</option></select></label>
-                </div>
-                <div class="evidence-summary" id="evidenceSummary"></div>
-                <div class="evidence-layout">
-                  <article class="panel evidence-results">
-                    <div class="panel-head"><div><span class="eyebrow">Extracted Facts</span><h2 id="evidenceResultTitle">Source-backed fact registry</h2></div><span class="confidence" id="evidenceAverageConfidence">0%</span></div>
-                    <div class="evidence-list" id="evidenceList"></div>
-                  </article>
-                  <article class="panel evidence-doc" id="evidenceDetail"><p class="muted">Select an evidence item to view its source excerpt and citation.</p></article>
-                </div>
-              </div>
-            </details>
           </div>
 
           <div class="workspace-pane" id="missing-pane" data-pane="missing-pane">
@@ -319,7 +292,7 @@
 
           <article class="panel">
             <div class="panel-head"><div><span class="eyebrow">Post-Deal Outcome</span><h2>Contribute this deal's outcome</h2></div></div>
-            <p class="muted">After a deal is finalized you can optionally submit its outcome. With your consent the platform stores only anonymized, structured data — never your documents, evidence, or the company name.</p>
+            <p class="muted">After a deal is finalized you can optionally submit its outcome. With your consent the platform stores only anonymized, structured data — never your documents or the company name.</p>
             <form id="outcomeForm" class="form-grid">
               <label class="field"><span>Did the deal close?</span>
                 <select name="closed"><option value="yes">Yes — closed</option><option value="no">No — passed / broke</option></select></label>
@@ -374,7 +347,6 @@
             <article class="panel">
               <div class="panel-head"><div><span class="eyebrow">Workspace</span><h2>General settings</h2></div></div>
               <label class="toggle-row"><span>Require human approval before memo insertion</span><input type="checkbox" checked /></label>
-              <label class="toggle-row"><span>Show contradicting evidence by default</span><input type="checkbox" checked /></label>
               <div class="button-row"><button class="secondary-button" id="clearAllProjects" type="button"><i data-lucide="trash-2"></i>Delete all projects</button></div>
             </article>
           </div>
@@ -451,7 +423,6 @@
     <script src="./js/api.js"></script>
     <script src="./js/extract.js"></script>
     <script src="./js/classify.js"></script>
-    <script src="./js/evidence.js"></script>
     <script src="./js/llm.js"></script>
     <script src="./js/heuristics.js"></script>
     <script src="./js/learning.js"></script>

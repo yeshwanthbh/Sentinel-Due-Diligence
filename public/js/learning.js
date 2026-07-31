@@ -8,8 +8,7 @@
  *
  * What is contributed (with explicit consent): industry, deal type, deal-size
  * band, a pre-close analysis snapshot (recommendation + risk severity counts),
- * and the user-submitted result. Never the documents, evidence, memo, or company
- * name. */
+ * and the user-submitted result. Never the documents, memo, or company name. */
 (function () {
   const DD = (window.DD = window.DD || {});
   const api = () => DD.api.outcomes;
@@ -24,8 +23,7 @@
         : null,
       riskCounts: riskCounts(project),
       riskCategories: riskCategories(project),
-      findingCount: Object.values(project.findings || {}).flat().length,
-      evidenceCount: (project.evidence || []).length
+      findingCount: Object.values(project.findings || {}).flat().length
     };
   }
 
