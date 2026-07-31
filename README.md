@@ -5,8 +5,7 @@ investors (VC, PE, M&A). Upload a data room, run a team of specialized AI agents
 get evidence-linked findings, a risk register, an editable investment memo, and an
 investment recommendation — all exportable to PDF/Word/Excel/PowerPoint.
 
-It runs entirely in the browser. Accounts, projects, documents, evidence, and findings
-are stored locally in **IndexedDB**. No backend is required.
+It is a browser-hosted SPA backed by a Cloudflare Worker API. Accounts, projects, documents, evidence, and findings are persisted in Cloudflare D1/R2, and live AI analysis is proxied through the server.
 
 ---
 
@@ -24,25 +23,19 @@ are stored locally in **IndexedDB**. No backend is required.
 - **Proprietary learning & post-deal intelligence** — the platform gets smarter with
   every closed deal (see below).
 - **Auth** — local email/password accounts plus optional **Sign in with Google**.
-- **Bring-your-own-key AI** — add a Claude or OpenAI key in Settings for live analysis;
-  without a key a deterministic heuristic engine runs so the app is fully usable offline.
+- **Server-side AI proxy** — the Cloudflare Worker uses server-side Anthropic/OpenAI secrets to drive model-backed analysis, while the browser chooses provider/model preference. Without a configured server key, the deterministic heuristic engine runs.
 
 ---
 
 ## Running locally
 
-Google sign-in and the LLM calls require an `http(s)` origin — **the app will not work
-from a `file://` page**. Serve the folder with any static server:
+This project requires the Cloudflare Worker backend for auth, document storage, and AI proxying. For full local development, use Wrangler:
 
 ```bash
-# Python
-python -m http.server 4599
-
-# or Node
-npx serve -l 4599
+npx wrangler dev
 ```
 
-Then open **http://localhost:4599**.
+Then open the local preview URL shown by Wrangler (usually `http://127.0.0.1:8787`).
 
 ### Enable "Sign in with Google" (optional)
 
@@ -59,9 +52,7 @@ The official Google button then renders automatically for every visitor.
 
 ### Enable live AI analysis (optional)
 
-Go to **Settings → AI Engine**, choose a provider (Anthropic Claude or OpenAI), enter a
-model and API key, and click **Test connection**. Keys are stored only in your browser.
-Without a key, agents fall back to the deterministic heuristic engine.
+Go to **Settings → AI Engine**, choose a provider (Anthropic Claude or OpenAI) and select a model, then click **Test connection**. The Cloudflare Worker proxies calls through server-side secrets configured via Wrangler (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`). Without a configured server key, agents fall back to the deterministic heuristic engine.
 
 ---
 
@@ -96,9 +87,7 @@ The **Learning Bank** panel shows aggregate stats and lets you delete your own c
 
 ## Architecture
 
-Plain HTML/CSS/JS — no build step. Everything hangs off a global `window.DD` namespace so
-the non-module scripts can share state. Load order matters and is defined in
-[`index.html`](index.html).
+Plain HTML/CSS/JS — no build step for the frontend. The browser app talks to a Cloudflare Worker backend via `window.DD.api`, and the worker persists data in D1/R2 and proxies LLM calls through server-side secrets. Everything hangs off a global `window.DD` namespace so the non-module scripts can share state. Load order matters and is defined in [`index.html`](index.html).
 
 | File | Responsibility |
 |------|----------------|
