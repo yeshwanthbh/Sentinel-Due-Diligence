@@ -90,17 +90,30 @@ function getGoogleClientId() {
   const fromConfig = ((window.SENTINEL_CONFIG && window.SENTINEL_CONFIG.googleClientId) || "").trim();
   return fromConfig || (localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || "").trim();
 }
+let googleSignInInitialized = false;
+let googleSignInSucceeded = false;
 function setGoogleClientId(id) { localStorage.setItem(GOOGLE_CLIENT_ID_KEY, (id || "").trim()); }
 function googleRunnableOrigin() { return window.location.protocol === "http:" || window.location.protocol === "https:"; }
 
 // The raw Google ID token is sent to the server, which verifies its signature,
 // expiry, and audience before creating/linking the account. No client-side decode.
 async function handleGoogleCredential(response) {
+  if (googleSignInSucceeded) return;
   try {
-    if (!response || !response.credential) throw new Error("No credential returned by Google.");
+    if (!response || !response.credential) {
+      if (currentUser) return;
+      throw new Error("No credential returned by Google.");
+    }
     const { user } = await window.DD.api.auth.google(response.credential);
-    await setSession(user);
-    showToast(`Signed in as ${user.name} via Google.`);
+    try {
+      await setSession(user);
+      googleSignInSucceeded = true;
+      showToast(`Signed in as ${user.name} via Google.`);
+    } catch (renderError) {
+      googleSignInSucceeded = true;
+      console.error("Google sign-in succeeded but page render failed", renderError);
+      showToast(`Signed in as ${user.name} via Google. Reload the page if the UI looks wrong.`);
+    }
   } catch (error) {
     console.error(error);
     showToast(`Google sign-in failed: ${error.message}`);
@@ -112,6 +125,7 @@ function googleReady() { return Boolean(window.google && window.google.accounts 
 // Render the official Google button when everything is in place; otherwise show a
 // single clear message about what's missing. No pop-up prompts in the normal flow.
 function initGoogleSignIn() {
+  googleSignInSucceeded = false;
   const hint = $("#googleHint");
   const slot = $("#googleButton");
   const divider = $("#socialDivider");
@@ -140,8 +154,16 @@ function initGoogleSignIn() {
     window.setTimeout(initGoogleSignIn, 400);
     return;
   }
+  if (!slot) {
+    console.warn("Google sign-in slot is missing; skipping button rendering.");
+    if (hint) hint.textContent = "Google sign-in is unavailable because the button container is missing.";
+    return;
+  }
   try {
-    window.google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential, auto_select: false });
+    if (!googleSignInInitialized) {
+      window.google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential, auto_select: false });
+      googleSignInInitialized = true;
+    }
     showDivider(true); showSetupLink(false);
     reset();
     // The official, Google-rendered button — same as other companies' pages.
