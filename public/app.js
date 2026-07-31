@@ -23,6 +23,7 @@ let currentFindingTab = null;
 let currentWorkspaceTab = "findings-pane";
 let saveTimer = null;
 let evidenceSelection = null;
+let expandedFindingEvidence = new Set();
 let reviewTarget = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -635,9 +636,22 @@ function renderResearch() {
 }
 
 /* ---- Findings ---- */
+// Renders a finding's supporting citations inline (used both on initial paint when
+// already expanded, and when the "Evidence" toggle button opens the section).
+function findingEvidenceHtml(findingId) {
+  const items = window.DD.evidence.forFinding(currentProject, findingId);
+  return items.map((e) => `
+    <div class="evidence-item">
+      <div class="evidence-item-top"><strong>${escapeHtml(e.fact)}</strong><span class="confidence">${e.confidence}%</span></div>
+      <span class="muted">${escapeHtml(e.docName)}${e.page ? `, p.${e.page}` : ""} • ${escapeHtml(e.location)} • ${escapeHtml(e.agent)}</span>
+      <blockquote class="excerpt">${escapeHtml(e.excerpt || "No excerpt captured.")}</blockquote>
+    </div>`).join("") || `<p class="muted">No evidence linked yet.</p>`;
+}
+
 function findingCard(f, bucket) {
   const sev = `severity-${f.severity.toLowerCase()}`;
   const statusClass = f.status === "Approved" ? "success" : f.status === "Rejected" ? "danger" : f.status === "Edited" ? "info" : "warning";
+  const expanded = expandedFindingEvidence.has(f.id);
   return `<article class="finding-card">
     <div class="finding-card-top">
       <div><h2>${escapeHtml(f.title)}</h2><p class="muted">${escapeHtml(f.summary)}</p></div>
@@ -655,9 +669,10 @@ function findingCard(f, bucket) {
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Edited">${icon("pencil")}Edit</button>
       <button class="secondary-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="Commented">${icon("message-square")}Comment</button>
       <button class="ghost-button" data-finding="${f.id}" data-bucket="${escapeHtml(bucket)}" data-review="History">${icon("history")}History</button>
-      <button class="ghost-button" data-evidence-for="${f.id}">${icon("search-check")}Evidence</button>
+      <button class="ghost-button" data-toggle-evidence="${f.id}">${icon(expanded ? "chevron-up" : "search-check")}${expanded ? "Hide Evidence" : "Evidence"}</button>
     </div>
     ${(f.reviews && f.reviews.length) ? `<div class="review-strip">${f.reviews.slice(0, 2).map((rv) => `<span>${escapeHtml(rv.by)} ${escapeHtml(rv.action)}${rv.note ? `: ${escapeHtml(rv.note)}` : ""} • ${new Date(rv.at).toLocaleString()}</span>`).join("")}</div>` : ""}
+    <div class="finding-evidence" id="finding-evidence-${f.id}" ${expanded ? "" : "hidden"}>${expanded ? findingEvidenceHtml(f.id) : ""}</div>
   </article>`;
 }
 
@@ -1034,6 +1049,7 @@ async function deleteProject(projectId) {
     currentProject = projects[0] || null;
     currentFindingTab = null;
     evidenceSelection = null;
+    expandedFindingEvidence = new Set();
     reviewTarget = null;
   }
   renderProjectSurfaces();
@@ -1049,7 +1065,16 @@ function wireInteractions() {
     const tab = event.target.closest("[data-tab]"); if (tab) { currentFindingTab = tab.dataset.tab; renderFindings(); refreshIcons(); }
     const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick);
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
-    const evFor = event.target.closest("[data-evidence-for]"); if (evFor) { $("#evidenceFindingFilter").value = `finding:${evFor.dataset.evidenceFor}`; $("#evidenceConfidenceFilter").value = 0; showPage("analysis-workspace"); showWorkspaceTab("evidence-pane"); renderEvidence(); }
+    const evToggle = event.target.closest("[data-toggle-evidence]"); if (evToggle) {
+      const findingId = evToggle.dataset.toggleEvidence;
+      const panel = document.getElementById(`finding-evidence-${findingId}`);
+      const nowExpanded = panel.hidden;
+      if (nowExpanded) { expandedFindingEvidence.add(findingId); panel.innerHTML = findingEvidenceHtml(findingId); }
+      else { expandedFindingEvidence.delete(findingId); panel.innerHTML = ""; }
+      panel.hidden = !nowExpanded;
+      evToggle.innerHTML = `${icon(nowExpanded ? "chevron-up" : "search-check")}${nowExpanded ? "Hide Evidence" : "Evidence"}`;
+      refreshIcons();
+    }
     const evItem = event.target.closest("[data-evidence]"); if (evItem) { renderEvidenceDetail(window.DD.evidence.byId(currentProject, evItem.dataset.evidence)); renderEvidence(); }
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
     const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome);
