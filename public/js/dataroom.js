@@ -28,12 +28,12 @@
     });
 
     if (onProgress) onProgress({ id, name: file.name, stage: "classifying", pct: 78 });
-    const { category, docType, confidence } = DD.classify.classify(file.name, extracted);
+    const { category, docType } = DD.classify.classify(file.name, extracted);
 
     const duplicate = (project.documents || []).find((d) => d.hash === hash);
     const record = {
       id, name: file.name, ext: extracted.ext, size: file.size,
-      category, docType, confidence: `${confidence}%`, classificationConfidence: confidence,
+      category, docType,
       status: duplicate ? "Duplicate" : (extracted.error ? "Error" : "Processed"),
       hash, duplicateOf: duplicate ? duplicate.id : null,
       duplicate: duplicate ? `Duplicate of ${duplicate.name}` : "No duplicate",

@@ -352,7 +352,6 @@ function renderDataRoom() {
       <span>${escapeHtml(doc.category)}<br><small class="muted">${escapeHtml(doc.docType)}</small></span>
       <span class="status-badge ${doc.status === "Duplicate" ? "warning" : doc.status === "Error" ? "danger" : "success"}">${escapeHtml(doc.status)}</span>
       <span class="muted">${escapeHtml(doc.duplicate)}</span>
-      <strong>${escapeHtml(doc.confidence)}</strong>
     </div>`).join("")
     : `<p class="muted">No documents match. Upload files to build the inventory.</p>`;
 }

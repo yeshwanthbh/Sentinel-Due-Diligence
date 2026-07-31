@@ -32,15 +32,8 @@
   }
 
   function classify(fileName, extractResult) {
-    const { category, docType, score } = scoreCategory(fileName, extractResult.fullText || "");
-    // confidence blends keyword strength with amount of extractable text
-    const textFactor = Math.min(1, (extractResult.wordCount || 0) / 400);
-    const keywordFactor = Math.min(1, score / 8);
-    let confidence = Math.round(45 + keywordFactor * 45 + textFactor * 8);
-    if (extractResult.ocrUsed) confidence -= 6;
-    if (!extractResult.fullText) confidence = 30;
-    confidence = Math.max(20, Math.min(98, confidence));
-    return { category, docType, confidence };
+    const { category, docType } = scoreCategory(fileName, extractResult.fullText || "");
+    return { category, docType };
   }
 
   DD.classify = { classify, categories: TAXONOMY.map((t) => t.category) };

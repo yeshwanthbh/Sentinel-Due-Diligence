@@ -640,7 +640,7 @@ h3 {
 }
 
 .file-row {
-  grid-template-columns: minmax(220px, 1fr) 120px 140px 150px 90px;
+  grid-template-columns: minmax(220px, 1fr) 120px 140px 150px;
 }
 
 .row-title {
