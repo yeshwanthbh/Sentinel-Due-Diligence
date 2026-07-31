@@ -213,8 +213,8 @@
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">Valuation Support</span><h2>Indicative multiple bridge</h2></div></div><div class="valuation-panel" id="valuationPanel"></div></article>
           </div>
           <div class="financial-analysis-grid">
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="findings">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Evidence Engine</span><h2>Source-linked calculations</h2></div><button class="ghost-button" data-target="evidence">Open evidence</button></div><div class="evidence-link-list" id="financialEvidenceList"></div></article>
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Structured Findings</span><h2>Generated financial findings</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="findings-pane">Open findings</button></div><div class="finding-list" id="financialFindingsList"></div></article>
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">Evidence Engine</span><h2>Source-linked calculations</h2></div><button class="ghost-button" data-target="analysis-workspace" data-subtab="evidence-pane">Open evidence</button></div><div class="evidence-link-list" id="financialEvidenceList"></div></article>
           </div>
         </section>
 
@@ -227,51 +227,57 @@
           <div class="research-grid" id="researchGrid"><p class="muted">Run the Research Agent to gather company overview, competitors, executives, news, patents, filings, and market data with citations.</p></div>
         </section>
 
-        <!-- FINDINGS -->
-        <section class="page" id="findings">
-          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings center</h1></div></div>
-          <div class="tabs" id="findingTabs"></div>
-          <div class="finding-list" id="findingList"></div>
-        </section>
+        <!-- ANALYSIS WORKSPACE (Findings + Evidence + Missing + Risks) -->
+        <section class="page" id="analysis-workspace">
+          <div class="page-head"><div><span class="eyebrow">Analysis Workspace</span><h1>Findings, evidence, gaps &amp; risk in one place</h1></div></div>
+          <div class="tabs workspace-tabs" id="workspaceTabs">
+            <button class="tab-button active" data-subtab="findings-pane"><i data-lucide="list-checks"></i>Findings</button>
+            <button class="tab-button" data-subtab="evidence-pane"><i data-lucide="search-check"></i>Evidence</button>
+            <button class="tab-button" data-subtab="missing-pane"><i data-lucide="circle-help"></i>Missing Info</button>
+            <button class="tab-button" data-subtab="risks-pane"><i data-lucide="shield-alert"></i>Risks</button>
+          </div>
 
-        <!-- EVIDENCE -->
-        <section class="page" id="evidence">
-          <div class="page-head">
-            <div><span class="eyebrow">Citation Engine</span><h1>Evidence explorer</h1></div>
-            <div class="button-row">
-              <button class="secondary-button" id="copyEvidenceApi"><i data-lucide="braces"></i>Copy API contract</button>
-              <button class="primary-button" id="exportEvidenceBundle"><i data-lucide="download"></i>Export evidence</button>
+          <div class="workspace-pane active" id="findings-pane" data-pane="findings-pane">
+            <div class="tabs" id="findingTabs"></div>
+            <div class="finding-list" id="findingList"></div>
+          </div>
+
+          <div class="workspace-pane" id="evidence-pane" data-pane="evidence-pane">
+            <div class="panel-head">
+              <div><span class="eyebrow">Citation Engine</span><h2>Evidence explorer</h2></div>
+              <div class="button-row">
+                <button class="secondary-button" id="copyEvidenceApi"><i data-lucide="braces"></i>Copy API contract</button>
+                <button class="primary-button" id="exportEvidenceBundle"><i data-lucide="download"></i>Export evidence</button>
+              </div>
+            </div>
+            <div class="evidence-toolbar">
+              <label class="field"><span>Finding or Agent</span><select id="evidenceFindingFilter"></select></label>
+              <label class="field"><span>Minimum Confidence: <b id="evidenceConfidenceValue">70</b>%</span><input id="evidenceConfidenceFilter" type="range" min="0" max="99" value="70" /></label>
+              <label class="field"><span>Source Type</span><select id="evidenceSourceFilter"><option value="all">All sources</option><option value="table">Tables</option><option value="paragraph">Paragraphs</option></select></label>
+            </div>
+            <div class="evidence-summary" id="evidenceSummary"></div>
+            <div class="evidence-layout">
+              <article class="panel evidence-results">
+                <div class="panel-head"><div><span class="eyebrow">Extracted Facts</span><h2 id="evidenceResultTitle">Source-backed fact registry</h2></div><span class="confidence" id="evidenceAverageConfidence">0%</span></div>
+                <div class="evidence-list" id="evidenceList"></div>
+              </article>
+              <article class="panel evidence-doc" id="evidenceDetail"><p class="muted">Select an evidence item to view its source excerpt and citation.</p></article>
             </div>
           </div>
-          <div class="evidence-toolbar">
-            <label class="field"><span>Finding or Agent</span><select id="evidenceFindingFilter"></select></label>
-            <label class="field"><span>Minimum Confidence: <b id="evidenceConfidenceValue">70</b>%</span><input id="evidenceConfidenceFilter" type="range" min="0" max="99" value="70" /></label>
-            <label class="field"><span>Source Type</span><select id="evidenceSourceFilter"><option value="all">All sources</option><option value="table">Tables</option><option value="paragraph">Paragraphs</option></select></label>
-          </div>
-          <div class="evidence-summary" id="evidenceSummary"></div>
-          <div class="evidence-layout">
-            <article class="panel evidence-results">
-              <div class="panel-head"><div><span class="eyebrow">Extracted Facts</span><h2 id="evidenceResultTitle">Source-backed fact registry</h2></div><span class="confidence" id="evidenceAverageConfidence">0%</span></div>
-              <div class="evidence-list" id="evidenceList"></div>
-            </article>
-            <article class="panel evidence-doc" id="evidenceDetail"><p class="muted">Select an evidence item to view its source excerpt and citation.</p></article>
-          </div>
-        </section>
 
-        <!-- MISSING -->
-        <section class="page" id="missing">
-          <div class="page-head"><div><span class="eyebrow">Request List</span><h1>Missing information center</h1></div></div>
-          <div class="missing-grid" id="missingGrid"></div>
-        </section>
-
-        <!-- RISKS -->
-        <section class="page" id="risks">
-          <div class="page-head">
-            <div><span class="eyebrow">Risk Register</span><h1>Risk center</h1></div>
-            <button class="primary-button" id="runRiskAgent" type="button"><i data-lucide="shield-alert"></i>Rebuild Register</button>
+          <div class="workspace-pane" id="missing-pane" data-pane="missing-pane">
+            <div class="panel-head"><div><span class="eyebrow">Request List</span><h2>Missing information center</h2></div></div>
+            <div class="missing-grid" id="missingGrid"></div>
           </div>
-          <div class="risk-profile" id="riskProfile"></div>
-          <div class="risk-columns" id="riskColumns"></div>
+
+          <div class="workspace-pane" id="risks-pane" data-pane="risks-pane">
+            <div class="panel-head">
+              <div><span class="eyebrow">Risk Register</span><h2>Risk center</h2></div>
+              <button class="primary-button" id="runRiskAgent" type="button"><i data-lucide="shield-alert"></i>Rebuild Register</button>
+            </div>
+            <div class="risk-profile" id="riskProfile"></div>
+            <div class="risk-columns" id="riskColumns"></div>
+          </div>
         </section>
 
         <!-- MEMO -->

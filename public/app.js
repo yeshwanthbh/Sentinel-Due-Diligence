@@ -8,10 +8,7 @@ const navItems = [
   ["projects", "Projects", "briefcase-business"],
   ["data-room", "Data Room", "database"],
   ["analysis", "Analysis", "activity"],
-  ["findings", "Findings Center", "list-checks"],
-  ["evidence", "Evidence Explorer", "search-check"],
-  ["missing", "Missing Information", "circle-help"],
-  ["risks", "Risk Center", "shield-alert"],
+  ["analysis-workspace", "Analysis Workspace", "list-checks"],
   ["memo", "Investment Memo", "file-pen-line"],
   ["intelligence", "Deal Intelligence", "brain-circuit"],
   ["reports", "Reports", "download"],
@@ -23,6 +20,7 @@ let authMode = "login";
 let projects = [];
 let currentProject = null;
 let currentFindingTab = null;
+let currentWorkspaceTab = "findings-pane";
 let saveTimer = null;
 let evidenceSelection = null;
 let reviewTarget = null;
@@ -253,6 +251,14 @@ function showPage(id) {
   document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === id));
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.target === id));
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// The Analysis Workspace page bundles Findings/Evidence/Missing/Risks behind an
+// internal sub-tab bar so they no longer need separate sidebar entries or page navigations.
+function showWorkspaceTab(paneId) {
+  currentWorkspaceTab = paneId;
+  document.querySelectorAll(".workspace-pane").forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === paneId));
+  document.querySelectorAll("#workspaceTabs [data-subtab]").forEach((btn) => btn.classList.toggle("active", btn.dataset.subtab === paneId));
 }
 
 function countFindings(project, predicate) {
@@ -1036,13 +1042,14 @@ async function deleteProject(projectId) {
 
 function wireInteractions() {
   document.addEventListener("click", (event) => {
-    const nav = event.target.closest("[data-target]"); if (nav) showPage(nav.dataset.target);
+    const nav = event.target.closest("[data-target]"); if (nav) { showPage(nav.dataset.target); if (nav.dataset.subtab) showWorkspaceTab(nav.dataset.subtab); }
+    const subtab = event.target.closest("#workspaceTabs [data-subtab]"); if (subtab) showWorkspaceTab(subtab.dataset.subtab);
     const openP = event.target.closest("[data-open-project]"); if (openP) openProject(openP.dataset.openProject);
     const delP = event.target.closest("[data-delete-project]"); if (delP) deleteProject(delP.dataset.deleteProject);
     const tab = event.target.closest("[data-tab]"); if (tab) { currentFindingTab = tab.dataset.tab; renderFindings(); refreshIcons(); }
     const quick = event.target.closest("[data-quick]"); if (quick) quickReview(quick.dataset.finding, quick.dataset.quick);
     const rev = event.target.closest("[data-review]"); if (rev) openReview(rev.dataset.finding, rev.dataset.bucket, rev.dataset.review);
-    const evFor = event.target.closest("[data-evidence-for]"); if (evFor) { $("#evidenceFindingFilter").value = `finding:${evFor.dataset.evidenceFor}`; $("#evidenceConfidenceFilter").value = 0; showPage("evidence"); renderEvidence(); }
+    const evFor = event.target.closest("[data-evidence-for]"); if (evFor) { $("#evidenceFindingFilter").value = `finding:${evFor.dataset.evidenceFor}`; $("#evidenceConfidenceFilter").value = 0; showPage("analysis-workspace"); showWorkspaceTab("evidence-pane"); renderEvidence(); }
     const evItem = event.target.closest("[data-evidence]"); if (evItem) { renderEvidenceDetail(window.DD.evidence.byId(currentProject, evItem.dataset.evidence)); renderEvidence(); }
     const exp = event.target.closest("[data-export]"); if (exp) doExport(exp.dataset.export);
     const delO = event.target.closest("[data-delete-outcome]"); if (delO) deleteOutcome(delO.dataset.deleteOutcome);

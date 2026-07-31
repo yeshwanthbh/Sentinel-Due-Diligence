@@ -824,6 +824,25 @@ h3 {
   border-bottom-color: var(--primary);
 }
 
+.workspace-tabs {
+  margin-bottom: 20px;
+}
+
+.workspace-tabs .tab-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.workspace-pane {
+  display: none;
+  animation: fadeIn 180ms ease;
+}
+
+.workspace-pane.active {
+  display: block;
+}
+
 .finding-card {
   display: grid;
   gap: 11px;
